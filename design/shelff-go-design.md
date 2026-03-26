@@ -253,7 +253,8 @@ func DeleteSidecar(pdfPath string) error
 func MoveBook(pdfPath string, destDir string) (newPDFPath string, err error)
 
 // RenameBook renames a PDF and its sidecar (if present) within the same directory.
-// newName is the new filename WITHOUT the .pdf extension.
+// newName must be a single base filename. Leading/trailing whitespace is trimmed,
+// and a trailing ".pdf" extension is accepted and stripped before renaming.
 // Returns the new PDF path.
 // If a file with the new name exists, returns ErrAlreadyExists.
 func RenameBook(pdfPath string, newName string) (newPDFPath string, err error)
@@ -264,6 +265,8 @@ func DeleteBook(pdfPath string) error
 ```
 
 **Atomicity for MoveBook/RenameBook**: If the PDF is moved/renamed successfully but the sidecar operation fails, the PDF operation is rolled back (moved/renamed back) and an error is returned. This matches the shelff Swift implementation's behavior.
+
+**Consistency for DeleteBook**: DeleteBook should avoid leaving the library in a partial state. If sidecar deletion fails after the PDF has been staged for deletion, the PDF should be restored to its original path and the operation should return an error.
 
 ### 4.4 Library Type
 
@@ -633,9 +636,12 @@ Each test creates a temporary directory (`t.TempDir()`) as a library root. Tests
 - MoveBook without sidecar → only PDF moved, no error
 - MoveBook to directory with existing file → ErrAlreadyExists
 - RenameBook → both PDF and sidecar renamed
+- RenameBook with blank or non-base target name → error, original files unchanged
+- RenameBook with trailing `.pdf` in newName → renamed once, not `.pdf.pdf`
 - RenameBook sidecar failure → PDF rolled back to original name
 - DeleteBook → both files deleted
 - DeleteBook without sidecar → only PDF deleted
+- DeleteBook sidecar failure → PDF restored to original path
 
 **Category operations**:
 - Add → appears in list with correct order
