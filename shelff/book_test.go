@@ -76,6 +76,35 @@ func TestMoveBookReturnsErrAlreadyExistsWhenDestinationPDFExists(t *testing.T) {
 	assertPathExists(t, pdfPath)
 }
 
+func TestMoveBookReturnsErrPDFNotFoundWhenSourceIsMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	destDir := filepath.Join(root, "dest")
+	mkdirAll(t, destDir)
+
+	_, err := shelff.MoveBook(filepath.Join(root, "missing.pdf"), destDir)
+	if !errors.Is(err, shelff.ErrPDFNotFound) {
+		t.Fatalf("MoveBook error = %v, want ErrPDFNotFound", err)
+	}
+}
+
+func TestMoveBookReturnsErrorWhenDestinationDirectoryIsMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	mkdirAll(t, sourceDir)
+
+	pdfPath := writeTestPDF(t, sourceDir, "book.pdf")
+	_, err := shelff.MoveBook(pdfPath, filepath.Join(root, "missing-dest"))
+	if err == nil {
+		t.Fatal("MoveBook error = nil, want error for missing destination directory")
+	}
+
+	assertPathExists(t, pdfPath)
+}
+
 func TestMoveBookRollsBackWhenSidecarMoveFails(t *testing.T) {
 	t.Parallel()
 
@@ -148,6 +177,32 @@ func TestRenameBookRollsBackWhenSidecarRenameFails(t *testing.T) {
 	assertPathMissing(t, filepath.Join(root, "renamed.pdf"))
 }
 
+func TestRenameBookReturnsErrPDFNotFoundWhenSourceIsMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	_, err := shelff.RenameBook(filepath.Join(root, "missing.pdf"), "renamed")
+	if !errors.Is(err, shelff.ErrPDFNotFound) {
+		t.Fatalf("RenameBook error = %v, want ErrPDFNotFound", err)
+	}
+}
+
+func TestRenameBookReturnsErrAlreadyExistsWhenTargetPDFExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeTestPDF(t, root, "renamed.pdf")
+
+	_, err := shelff.RenameBook(pdfPath, "renamed")
+	if !errors.Is(err, shelff.ErrAlreadyExists) {
+		t.Fatalf("RenameBook error = %v, want ErrAlreadyExists", err)
+	}
+
+	assertPathExists(t, pdfPath)
+}
+
 func TestDeleteBookDeletesPDFAndSidecar(t *testing.T) {
 	t.Parallel()
 
@@ -163,6 +218,15 @@ func TestDeleteBookDeletesPDFAndSidecar(t *testing.T) {
 
 	assertPathMissing(t, pdfPath)
 	assertPathMissing(t, shelff.SidecarPath(pdfPath))
+}
+
+func TestDeleteBookReturnsErrPDFNotFoundWhenSourceIsMissing(t *testing.T) {
+	t.Parallel()
+
+	err := shelff.DeleteBook(filepath.Join(t.TempDir(), "missing.pdf"))
+	if !errors.Is(err, shelff.ErrPDFNotFound) {
+		t.Fatalf("DeleteBook error = %v, want ErrPDFNotFound", err)
+	}
 }
 
 func TestDeleteBookWithoutSidecarDeletesOnlyPDF(t *testing.T) {
