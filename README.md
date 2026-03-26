@@ -204,10 +204,13 @@ Mutation tools:
 
 `write_sidecar` is an MCP-layer convenience API that accepts a partial JSON object:
 
-- fields omitted from the input are left unchanged
+- in general, fields omitted from the input are left unchanged
 - object fields are merged recursively
 - arrays and scalar values replace the existing value
-- `null` deletes the targeted field when that is schema-safe
+- in general, `null` deletes the targeted field when that is schema-safe
+- `schemaVersion` is always normalized to the current `shelff.SchemaVersion`
+- `metadata.dc:title` is preserved from the current sidecar when it is omitted from the patch or set to `null`
+- if a patch removes a required key inside `reading` or `display`, normalization drops the entire `reading` or `display` object instead of leaving an invalid partial object behind
 - if no sidecar exists yet, the tool creates one first and then applies the patch
 
 The returned sidecar is the canonical persisted representation after normalization.
