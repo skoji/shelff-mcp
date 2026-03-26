@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// These white-box tests intentionally use package shelff so they can exercise
+// unexported low-level helpers directly without widening the production API.
 func TestWriteAllHandlesShortWrites(t *testing.T) {
 	t.Parallel()
 
