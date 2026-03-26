@@ -3,7 +3,7 @@
 `shelff-go` provides:
 
 - a Go library for working with [shelff](https://skoji.dev/en/shelff/) libraries
-- an MCP server, `shelff-mcp`, that exposes the same library operations over stdio
+- an MCP server, `shelff-mcp`, that exposes most of the library operations over stdio
 
 ## Installation
 
