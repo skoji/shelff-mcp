@@ -220,6 +220,145 @@ func TestReadOnlyToolsReturnStructuredData(t *testing.T) {
 	}
 }
 
+func TestSidecarMutationTools(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	bootstrapPDFPath := writeTestPDF(t, root, "draft.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	createResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_sidecar",
+		Arguments: map[string]any{"pdfPath": "book.pdf"},
+	})
+	if err != nil {
+		t.Fatalf("create_sidecar error = %v", err)
+	}
+	var createOut readSidecarOutput
+	decodeStructuredContent(t, createResult, &createOut)
+	if !createOut.Exists || createOut.Sidecar == nil || createOut.Sidecar.Metadata.Title != "book" {
+		t.Fatalf("create_sidecar output = %#v", createOut)
+	}
+
+	writeResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "write_sidecar",
+		Arguments: map[string]any{
+			"pdfPath": "book.pdf",
+			"sidecar": map[string]any{
+				"metadata": map[string]any{
+					"dc:creator": []any{"Ada"},
+				},
+				"tags":     []any{"go", "mcp"},
+				"category": "Reference",
+				"reading": map[string]any{
+					"lastReadPage": 10,
+					"lastReadAt":   "2026-03-26T10:00:00Z",
+					"totalPages":   100,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_sidecar first error = %v", err)
+	}
+	var writeOut readSidecarOutput
+	decodeStructuredContent(t, writeResult, &writeOut)
+	if writeOut.Sidecar == nil || len(writeOut.Sidecar.Metadata.Creator) != 1 || writeOut.Sidecar.Metadata.Creator[0] != "Ada" {
+		t.Fatalf("write_sidecar first output = %#v", writeOut)
+	}
+
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{"schemaVersion":1,"metadata":{"dc:title":"book","dc:creator":["Ada"]},"tags":["go","mcp"],"x-custom":42}`)
+
+	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "write_sidecar",
+		Arguments: map[string]any{
+			"pdfPath": "book.pdf",
+			"sidecar": map[string]any{
+				"metadata": map[string]any{
+					"dc:title": "Updated Book",
+				},
+				"category": nil,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_sidecar second error = %v", err)
+	}
+	writeOut = readSidecarOutput{}
+	decodeStructuredContent(t, writeResult, &writeOut)
+	if writeOut.Sidecar == nil || writeOut.Sidecar.Metadata.Title != "Updated Book" {
+		t.Fatalf("write_sidecar second output = %#v", writeOut)
+	}
+	if len(writeOut.Sidecar.Metadata.Creator) != 1 || writeOut.Sidecar.Metadata.Creator[0] != "Ada" {
+		t.Fatalf("write_sidecar creator = %#v, want preserved", writeOut.Sidecar.Metadata.Creator)
+	}
+	if writeOut.Sidecar.Category != nil {
+		t.Fatalf("write_sidecar category = %#v, want nil", writeOut.Sidecar.Category)
+	}
+
+	rawSidecar := readJSONFile(t, shelff.SidecarPath(pdfPath))
+	if got := rawSidecar["x-custom"]; got != float64(42) {
+		t.Fatalf("raw sidecar x-custom = %#v, want 42", got)
+	}
+
+	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "write_sidecar",
+		Arguments: map[string]any{
+			"pdfPath": "draft.pdf",
+			"sidecar": map[string]any{
+				"tags": []any{"bootstrap"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_sidecar bootstrap error = %v", err)
+	}
+	writeOut = readSidecarOutput{}
+	decodeStructuredContent(t, writeResult, &writeOut)
+	if writeOut.Sidecar == nil || writeOut.Sidecar.Metadata.Title != "draft" {
+		t.Fatalf("write_sidecar bootstrap output = %#v", writeOut)
+	}
+	if !slices.Equal(writeOut.Sidecar.Tags, []string{"bootstrap"}) {
+		t.Fatalf("write_sidecar bootstrap tags = %#v", writeOut.Sidecar.Tags)
+	}
+	if _, err := os.Stat(shelff.SidecarPath(bootstrapPDFPath)); err != nil {
+		t.Fatalf("bootstrap sidecar not written: %v", err)
+	}
+
+	deleteResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "delete_sidecar",
+		Arguments: map[string]any{"pdfPath": "book.pdf"},
+	})
+	if err != nil {
+		t.Fatalf("delete_sidecar error = %v", err)
+	}
+	var deleteOut deleteSidecarOutput
+	decodeStructuredContent(t, deleteResult, &deleteOut)
+	if !deleteOut.Deleted {
+		t.Fatalf("delete_sidecar output = %#v, want deleted=true", deleteOut)
+	}
+	if _, err := os.Stat(shelff.SidecarPath(pdfPath)); !os.IsNotExist(err) {
+		t.Fatalf("sidecar still exists after delete_sidecar: %v", err)
+	}
+
+	deleteResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "delete_sidecar",
+		Arguments: map[string]any{"pdfPath": "book.pdf"},
+	})
+	if err != nil {
+		t.Fatalf("delete_sidecar second error = %v", err)
+	}
+	deleteOut = deleteSidecarOutput{}
+	decodeStructuredContent(t, deleteResult, &deleteOut)
+	if deleteOut.Deleted {
+		t.Fatalf("second delete_sidecar output = %#v, want deleted=false", deleteOut)
+	}
+}
+
 func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 	t.Parallel()
 
@@ -302,6 +441,20 @@ func decodeStructuredContent(t *testing.T, result *mcp.CallToolResult, out any) 
 	if err := json.Unmarshal(data, out); err != nil {
 		t.Fatalf("Unmarshal structured content error = %v", err)
 	}
+}
+
+func readJSONFile(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", path, err)
+	}
+	return decoded
 }
 
 func writeTestPDF(t *testing.T, dir string, name string) string {

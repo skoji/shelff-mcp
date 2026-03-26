@@ -28,13 +28,7 @@ func ReadSidecar(pdfPath string) (*SidecarMetadata, error) {
 		return nil, err
 	}
 
-	var meta SidecarMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, err
-	}
-
-	meta.rawJSON = append([]byte(nil), data...)
-	return &meta, nil
+	return ParseSidecarJSON(data)
 }
 
 // CreateSidecar creates a new sidecar JSON for the given PDF.
@@ -68,6 +62,18 @@ func CreateSidecar(pdfPath string) (*SidecarMetadata, error) {
 	}
 
 	return meta, nil
+}
+
+// ParseSidecarJSON parses sidecar JSON bytes and retains the original raw JSON so
+// a later WriteSidecar call can preserve unknown top-level fields.
+func ParseSidecarJSON(data []byte) (*SidecarMetadata, error) {
+	var meta SidecarMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+
+	meta.rawJSON = append([]byte(nil), data...)
+	return &meta, nil
 }
 
 // WriteSidecar writes the sidecar JSON for the given PDF.

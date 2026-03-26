@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -34,6 +35,11 @@ type scanBooksInput struct {
 	Recursive bool `json:"recursive" jsonschema:"Whether to scan subdirectories recursively."`
 }
 
+type writeSidecarInput struct {
+	PDFPath string         `json:"pdfPath" jsonschema:"Path to a PDF relative to the library root."`
+	Sidecar map[string]any `json:"sidecar" jsonschema:"Partial sidecar object to merge into the existing sidecar."`
+}
+
 type readSidecarOutput struct {
 	Exists  bool                    `json:"exists"`
 	Sidecar *shelff.SidecarMetadata `json:"sidecar,omitempty"`
@@ -60,6 +66,10 @@ type orphanedSidecarOutput struct {
 
 type validateSidecarOutput struct {
 	Errors []string `json:"errors"`
+}
+
+type deleteSidecarOutput struct {
+	Deleted bool `json:"deleted"`
 }
 
 type collectAllTagsOutput struct {
@@ -101,6 +111,18 @@ func (s *Server) registerTools() {
 		Name:        "read_sidecar",
 		Description: "Read sidecar metadata for a PDF path relative to the library root.",
 	}, s.readSidecar)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "create_sidecar",
+		Description: "Create a new sidecar for a PDF that does not already have one.",
+	}, s.createSidecar)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "write_sidecar",
+		Description: "Apply a partial sidecar update for a PDF, creating a sidecar first if needed.",
+	}, s.writeSidecar)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "delete_sidecar",
+		Description: "Delete the sidecar for a PDF if it exists.",
+	}, s.deleteSidecar)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "scan_books",
 		Description: "Scan the library for PDF files and whether they have sidecars.",
@@ -145,6 +167,79 @@ func (s *Server) readSidecar(_ context.Context, _ *mcp.CallToolRequest, in pdfPa
 		Exists:  sidecar != nil,
 		Sidecar: sidecar,
 	}, nil
+}
+
+func (s *Server) createSidecar(_ context.Context, _ *mcp.CallToolRequest, in pdfPathInput) (*mcp.CallToolResult, readSidecarOutput, error) {
+	pdfPath, err := s.resolvePath(in.PDFPath)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+
+	sidecar, err := shelff.CreateSidecar(pdfPath)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+	return nil, readSidecarOutput{
+		Exists:  true,
+		Sidecar: sidecar,
+	}, nil
+}
+
+func (s *Server) writeSidecar(_ context.Context, _ *mcp.CallToolRequest, in writeSidecarInput) (*mcp.CallToolResult, readSidecarOutput, error) {
+	pdfPath, err := s.resolvePath(in.PDFPath)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+	if in.Sidecar == nil {
+		in.Sidecar = map[string]any{}
+	}
+
+	existing, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+	if existing == nil {
+		existing, err = shelff.CreateSidecar(pdfPath)
+		if err != nil {
+			return nil, readSidecarOutput{}, err
+		}
+	}
+
+	currentMap, err := sidecarToMap(pdfPath, existing)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+	merged := mergeJSONObject(currentMap, in.Sidecar)
+
+	next, err := mapToSidecar(merged)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+	if err := shelff.WriteSidecar(pdfPath, next); err != nil {
+		return nil, readSidecarOutput{}, err
+	}
+
+	return nil, readSidecarOutput{
+		Exists:  true,
+		Sidecar: next,
+	}, nil
+}
+
+func (s *Server) deleteSidecar(_ context.Context, _ *mcp.CallToolRequest, in pdfPathInput) (*mcp.CallToolResult, deleteSidecarOutput, error) {
+	pdfPath, err := s.resolvePath(in.PDFPath)
+	if err != nil {
+		return nil, deleteSidecarOutput{}, err
+	}
+
+	err = os.Remove(shelff.SidecarPath(pdfPath))
+	switch {
+	case err == nil:
+		return nil, deleteSidecarOutput{Deleted: true}, nil
+	case os.IsNotExist(err):
+		return nil, deleteSidecarOutput{Deleted: false}, nil
+	default:
+		return nil, deleteSidecarOutput{}, err
+	}
 }
 
 func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBooksInput) (*mcp.CallToolResult, scanBooksOutput, error) {
@@ -355,9 +450,91 @@ func buildVersion() string {
 	return info.Main.Version
 }
 
+func sidecarToMap(pdfPath string, meta *shelff.SidecarMetadata) (map[string]any, error) {
+	data, err := os.ReadFile(shelff.SidecarPath(pdfPath))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		data, err = json.Marshal(meta)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil, err
+	}
+	if decoded == nil {
+		decoded = map[string]any{}
+	}
+	return decoded, nil
+}
+
+func mapToSidecar(value map[string]any) (*shelff.SidecarMetadata, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return shelff.ParseSidecarJSON(data)
+}
+
+func mergeJSONObject(current map[string]any, patch map[string]any) map[string]any {
+	if current == nil {
+		current = map[string]any{}
+	}
+
+	merged := cloneJSONObject(current)
+	for key, patchValue := range patch {
+		if patchValue == nil {
+			delete(merged, key)
+			continue
+		}
+
+		patchObject, patchIsObject := patchValue.(map[string]any)
+		currentObject, currentIsObject := merged[key].(map[string]any)
+		if patchIsObject && currentIsObject {
+			merged[key] = mergeJSONObject(currentObject, patchObject)
+			continue
+		}
+		merged[key] = cloneJSONValue(patchValue)
+	}
+	return merged
+}
+
+func cloneJSONObject(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(value))
+	for key, child := range value {
+		cloned[key] = cloneJSONValue(child)
+	}
+	return cloned
+}
+
+func cloneJSONValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return cloneJSONObject(v)
+	case []any:
+		cloned := make([]any, len(v))
+		for i, child := range v {
+			cloned[i] = cloneJSONValue(child)
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
 func toolNames() []string {
 	names := []string{
 		"read_sidecar",
+		"create_sidecar",
+		"write_sidecar",
+		"delete_sidecar",
 		"scan_books",
 		"find_orphaned_sidecars",
 		"validate_sidecar",

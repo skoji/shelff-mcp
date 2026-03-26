@@ -118,6 +118,33 @@ func TestReadSidecarParsesExistingContent(t *testing.T) {
 	}
 }
 
+func TestParseSidecarJSONPreservesUnknownTopLevelFieldsForWrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta, err := shelff.ParseSidecarJSON([]byte(`{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "x-custom": 42
+}`))
+	if err != nil {
+		t.Fatalf("ParseSidecarJSON returned error: %v", err)
+	}
+
+	meta.Metadata.Title = "Updated"
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	decoded := decodeJSONFile(t, shelff.SidecarPath(pdfPath))
+	if got := decoded["x-custom"].(json.Number).String(); got != "42" {
+		t.Fatalf("x-custom = %#v, want 42", decoded["x-custom"])
+	}
+}
+
 func TestWriteSidecarThenReadBack(t *testing.T) {
 	t.Parallel()
 
