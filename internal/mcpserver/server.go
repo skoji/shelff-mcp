@@ -327,7 +327,7 @@ func (s *Server) moveBook(_ context.Context, _ *mcp.CallToolRequest, in moveBook
 	if err != nil {
 		return nil, bookPathOutput{}, err
 	}
-	destDir, err := s.resolvePath(in.DestDir)
+	destDir, err := s.resolveDirectoryPath(in.DestDir)
 	if err != nil {
 		return nil, bookPathOutput{}, err
 	}
@@ -449,32 +449,32 @@ func (s *Server) readCategories(_ context.Context, _ *mcp.CallToolRequest, _ str
 	return nil, *categories, nil
 }
 
-func (s *Server) addCategory(_ context.Context, _ *mcp.CallToolRequest, in nameInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+func (s *Server) addCategory(ctx context.Context, _ *mcp.CallToolRequest, in nameInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
 	if err := s.library.AddCategory(in.Name); err != nil {
 		return nil, shelff.CategoryList{}, err
 	}
-	return s.readCategories(context.Background(), nil, struct{}{})
+	return s.readCategories(ctx, nil, struct{}{})
 }
 
-func (s *Server) removeCategory(_ context.Context, _ *mcp.CallToolRequest, in cascadeNameInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+func (s *Server) removeCategory(ctx context.Context, _ *mcp.CallToolRequest, in cascadeNameInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
 	if err := s.library.RemoveCategory(in.Name, in.Cascade); err != nil {
 		return nil, shelff.CategoryList{}, err
 	}
-	return s.readCategories(context.Background(), nil, struct{}{})
+	return s.readCategories(ctx, nil, struct{}{})
 }
 
-func (s *Server) renameCategory(_ context.Context, _ *mcp.CallToolRequest, in renameConfigInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+func (s *Server) renameCategory(ctx context.Context, _ *mcp.CallToolRequest, in renameConfigInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
 	if err := s.library.RenameCategory(in.OldName, in.NewName, in.Cascade); err != nil {
 		return nil, shelff.CategoryList{}, err
 	}
-	return s.readCategories(context.Background(), nil, struct{}{})
+	return s.readCategories(ctx, nil, struct{}{})
 }
 
-func (s *Server) reorderCategories(_ context.Context, _ *mcp.CallToolRequest, in reorderNamesInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+func (s *Server) reorderCategories(ctx context.Context, _ *mcp.CallToolRequest, in reorderNamesInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
 	if err := s.library.ReorderCategories(in.Names); err != nil {
 		return nil, shelff.CategoryList{}, err
 	}
-	return s.readCategories(context.Background(), nil, struct{}{})
+	return s.readCategories(ctx, nil, struct{}{})
 }
 
 func (s *Server) readTagOrder(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, shelff.TagOrder, error) {
@@ -485,32 +485,32 @@ func (s *Server) readTagOrder(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	return nil, *tagOrder, nil
 }
 
-func (s *Server) addTagToOrder(_ context.Context, _ *mcp.CallToolRequest, in nameInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+func (s *Server) addTagToOrder(ctx context.Context, _ *mcp.CallToolRequest, in nameInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
 	if err := s.library.AddTagToOrder(in.Name); err != nil {
 		return nil, shelff.TagOrder{}, err
 	}
-	return s.readTagOrder(context.Background(), nil, struct{}{})
+	return s.readTagOrder(ctx, nil, struct{}{})
 }
 
-func (s *Server) removeTagFromOrder(_ context.Context, _ *mcp.CallToolRequest, in cascadeNameInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+func (s *Server) removeTagFromOrder(ctx context.Context, _ *mcp.CallToolRequest, in cascadeNameInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
 	if err := s.library.RemoveTagFromOrder(in.Name, in.Cascade); err != nil {
 		return nil, shelff.TagOrder{}, err
 	}
-	return s.readTagOrder(context.Background(), nil, struct{}{})
+	return s.readTagOrder(ctx, nil, struct{}{})
 }
 
-func (s *Server) renameTag(_ context.Context, _ *mcp.CallToolRequest, in renameConfigInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+func (s *Server) renameTag(ctx context.Context, _ *mcp.CallToolRequest, in renameConfigInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
 	if err := s.library.RenameTag(in.OldName, in.NewName, in.Cascade); err != nil {
 		return nil, shelff.TagOrder{}, err
 	}
-	return s.readTagOrder(context.Background(), nil, struct{}{})
+	return s.readTagOrder(ctx, nil, struct{}{})
 }
 
-func (s *Server) reorderTags(_ context.Context, _ *mcp.CallToolRequest, in reorderNamesInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+func (s *Server) reorderTags(ctx context.Context, _ *mcp.CallToolRequest, in reorderNamesInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
 	if err := s.library.ReorderTags(in.Names); err != nil {
 		return nil, shelff.TagOrder{}, err
 	}
-	return s.readTagOrder(context.Background(), nil, struct{}{})
+	return s.readTagOrder(ctx, nil, struct{}{})
 }
 
 func openCanonicalLibrary(root string) (*shelff.Library, error) {
@@ -563,6 +563,16 @@ func (s *Server) resolvePath(relative string) (string, error) {
 		return "", err
 	}
 	return resolved, nil
+}
+
+func (s *Server) resolveDirectoryPath(relative string) (string, error) {
+	if strings.TrimSpace(relative) == "" {
+		return "", ErrEmptyPath
+	}
+	if filepath.Clean(filepath.FromSlash(relative)) == "." {
+		return s.library.Root(), nil
+	}
+	return s.resolvePath(relative)
 }
 
 func resolveExistingPath(path string) (string, error) {

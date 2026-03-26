@@ -394,6 +394,7 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	}
 
 	pdfPath := writeTestPDF(t, incomingDir, "book.pdf")
+	rootMovePDFPath := writeTestPDF(t, incomingDir, "root-move.pdf")
 	sidecar, err := shelff.CreateSidecar(pdfPath)
 	if err != nil {
 		t.Fatalf("CreateSidecar error = %v", err)
@@ -455,6 +456,28 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	}
 	if _, err := os.Stat(shelff.SidecarPath(renamedPDFPath)); err != nil {
 		t.Fatalf("renamed sidecar missing: %v", err)
+	}
+
+	rootMoveResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "move_book",
+		Arguments: map[string]any{
+			"pdfPath": "incoming/root-move.pdf",
+			"destDir": ".",
+		},
+	})
+	if err != nil {
+		t.Fatalf("move_book to root error = %v", err)
+	}
+	bookOut = bookPathOutput{}
+	decodeStructuredContent(t, rootMoveResult, &bookOut)
+	if bookOut.PDFPath != "root-move.pdf" {
+		t.Fatalf("move_book to root output = %#v, want root-move.pdf", bookOut)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(bookOut.PDFPath))); err != nil {
+		t.Fatalf("root-moved PDF missing: %v", err)
+	}
+	if _, err := os.Stat(rootMovePDFPath); !os.IsNotExist(err) {
+		t.Fatalf("source PDF still exists after root move_book: %v", err)
 	}
 
 	addCategoryResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -633,6 +656,7 @@ func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 
 	root := t.TempDir()
 	outside := t.TempDir()
+	writeTestPDF(t, root, "inside.pdf")
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
 		t.Skipf("os.Symlink unavailable: %v", err)
 	}
@@ -641,25 +665,12 @@ func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 	session := newClientSession(t, server)
 	defer session.Close()
 
-	for _, pdfPath := range []string{"../outside.pdf", "escape/outside.pdf"} {
-		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-			Name:      "read_sidecar",
-			Arguments: map[string]any{"pdfPath": pdfPath},
-		})
-		if err != nil {
-			t.Fatalf("CallTool(%q) error = %v", pdfPath, err)
-		}
-		if !result.IsError {
-			t.Fatalf("CallTool(%q) IsError = false, want true", pdfPath)
-		}
-		if len(result.Content) == 0 {
-			t.Fatalf("CallTool(%q) returned no error content", pdfPath)
-		}
-		text, ok := result.Content[0].(*mcp.TextContent)
-		if !ok || !strings.Contains(text.Text, ErrPathTraversal.Error()) {
-			t.Fatalf("CallTool(%q) content = %#v, want traversal error", pdfPath, result.Content[0])
-		}
-	}
+	assertToolTraversalError(t, session, "read_sidecar", map[string]any{"pdfPath": "../outside.pdf"})
+	assertToolTraversalError(t, session, "read_sidecar", map[string]any{"pdfPath": "escape/outside.pdf"})
+	assertToolTraversalError(t, session, "rename_book", map[string]any{"pdfPath": "../outside.pdf", "newName": "renamed"})
+	assertToolTraversalError(t, session, "rename_book", map[string]any{"pdfPath": "escape/outside.pdf", "newName": "renamed"})
+	assertToolTraversalError(t, session, "move_book", map[string]any{"pdfPath": "inside.pdf", "destDir": "../outside"})
+	assertToolTraversalError(t, session, "move_book", map[string]any{"pdfPath": "inside.pdf", "destDir": "escape"})
 }
 
 func TestNewRejectsMissingRoot(t *testing.T) {
@@ -709,6 +720,28 @@ func decodeStructuredContent(t *testing.T, result *mcp.CallToolResult, out any) 
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		t.Fatalf("Unmarshal structured content error = %v", err)
+	}
+}
+
+func assertToolTraversalError(t *testing.T, session *mcp.ClientSession, name string, arguments map[string]any) {
+	t.Helper()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      name,
+		Arguments: arguments,
+	})
+	if err != nil {
+		t.Fatalf("CallTool(%q) error = %v", name, err)
+	}
+	if !result.IsError {
+		t.Fatalf("CallTool(%q) IsError = false, want true", name)
+	}
+	if len(result.Content) == 0 {
+		t.Fatalf("CallTool(%q) returned no error content", name)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(text.Text, ErrPathTraversal.Error()) {
+		t.Fatalf("CallTool(%q) content = %#v, want traversal error", name, result.Content[0])
 	}
 }
 
