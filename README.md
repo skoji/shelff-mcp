@@ -10,6 +10,8 @@ The current repository scope is the library package, `github.com/skoji/shelff-go
 go get github.com/skoji/shelff-go/shelff
 ```
 
+The repository currently requires Go 1.25 or later because the MCP server uses the official `github.com/modelcontextprotocol/go-sdk`.
+
 ## What the library manages
 
 A shelff library consists of:
