@@ -343,6 +343,8 @@ func (l *Library) RemoveTagFromOrder(name string, cascade bool) error
 
 // RenameTag renames a tag in the display order list.
 // If cascade is true, updates the tag in all sidecars that reference the old name.
+// If a cascade rename would create duplicate occurrences of the new tag within a
+// sidecar's tags array, the resulting tags array is de-duplicated while preserving order.
 func (l *Library) RenameTag(oldName string, newName string, cascade bool) error
 
 // ReorderTags sets the tag display order.
@@ -462,7 +464,8 @@ When `cascade` is true for category/tag rename/remove:
 
 For rename cascade:
 - Category: replace `category` field value if it equals the old name
-- Tag: replace the old name with the new name in the `tags` array
+- Tag: replace the old name with the new name in the `tags` array; if that creates duplicate
+  occurrences of the new tag, de-duplicate the resulting array while preserving order
 
 For remove cascade:
 - Category: set `category` to nil if it equals the removed name
@@ -654,6 +657,7 @@ Each test creates a temporary directory (`t.TempDir()`) as a library root. Tests
 **Tag operations**:
 - CollectAllTags → union of all sidecar tags
 - Rename with cascade → tag updated in all sidecars
+- Rename with cascade causing tag collision → resulting sidecar tags de-duplicated
 - Remove with cascade → tag removed from all sidecars
 - tags.json ordering applied correctly, unregistered tags appended alphabetically
 
