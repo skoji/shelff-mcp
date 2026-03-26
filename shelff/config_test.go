@@ -305,6 +305,30 @@ func TestRemoveTagFromOrderWithAndWithoutCascade(t *testing.T) {
 	}
 }
 
+func TestRemoveTagFromOrderMissingTagIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	library := openTestLibrary(t, t.TempDir())
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  shelff.SchemaVersion,
+		TagOrder: []string{"history"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder returned error: %v", err)
+	}
+
+	if err := library.RemoveTagFromOrder("missing", false); err != nil {
+		t.Fatalf("RemoveTagFromOrder returned error: %v", err)
+	}
+
+	tags, err := library.ReadTagOrder()
+	if err != nil {
+		t.Fatalf("ReadTagOrder returned error: %v", err)
+	}
+	if len(tags.TagOrder) != 1 || tags.TagOrder[0] != "history" {
+		t.Fatalf("TagOrder = %#v, want unchanged [history]", tags.TagOrder)
+	}
+}
+
 func TestRenameTagWithCascadeUpdatesSidecarsAndDeduplicates(t *testing.T) {
 	t.Parallel()
 
@@ -353,6 +377,30 @@ func TestReorderTagsWritesNormalizedOrder(t *testing.T) {
 	}
 	if len(tags.TagOrder) != 2 || tags.TagOrder[0] != "history" || tags.TagOrder[1] != "sci-fi" {
 		t.Fatalf("TagOrder = %#v, want normalized order", tags.TagOrder)
+	}
+}
+
+func TestReorderTagsDoesNotRequireExistingSetMatch(t *testing.T) {
+	t.Parallel()
+
+	library := openTestLibrary(t, t.TempDir())
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  shelff.SchemaVersion,
+		TagOrder: []string{"history"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder returned error: %v", err)
+	}
+
+	if err := library.ReorderTags([]string{"new-tag", " history "}); err != nil {
+		t.Fatalf("ReorderTags returned error: %v", err)
+	}
+
+	tags, err := library.ReadTagOrder()
+	if err != nil {
+		t.Fatalf("ReadTagOrder returned error: %v", err)
+	}
+	if len(tags.TagOrder) != 2 || tags.TagOrder[0] != "new-tag" || tags.TagOrder[1] != "history" {
+		t.Fatalf("TagOrder = %#v, want [new-tag history]", tags.TagOrder)
 	}
 }
 

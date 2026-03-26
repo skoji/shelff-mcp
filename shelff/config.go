@@ -97,6 +97,8 @@ func (l *Library) AddCategory(name string) error {
 
 // RemoveCategory removes a category from the list.
 // If cascade is true, clears the category field in all sidecars that reference it.
+// Cascade updates are applied sequentially; if a sidecar update fails, already-written
+// sidecars are not rolled back.
 // Returns ErrCategoryNotFound if the category does not exist.
 func (l *Library) RemoveCategory(name string, cascade bool) error {
 	normalizedName, err := normalizeListName(name)
@@ -135,6 +137,8 @@ func (l *Library) RemoveCategory(name string, cascade bool) error {
 
 // RenameCategory renames a category.
 // If cascade is true, updates the category field in all sidecars that reference the old name.
+// Cascade updates are applied sequentially; if a sidecar update fails, already-written
+// sidecars are not rolled back.
 // Returns ErrCategoryNotFound if the old name does not exist.
 // Returns ErrCategoryAlreadyExists if the new name already exists.
 // Returns ErrEmptyName if the new name is empty after trimming.
@@ -306,6 +310,9 @@ func (l *Library) AddTagToOrder(name string) error {
 // RemoveTagFromOrder removes a tag from the display order list.
 // If cascade is true, also removes the tag from all sidecars that reference it.
 // Note: without cascade, this only removes the display ordering entry.
+// If the tag is not present in tags.json, this is a no-op.
+// Cascade updates are applied sequentially; if a sidecar update fails, already-written
+// sidecars are not rolled back.
 func (l *Library) RemoveTagFromOrder(name string, cascade bool) error {
 	normalizedName, err := normalizeListName(name)
 	if err != nil {
@@ -317,7 +324,7 @@ func (l *Library) RemoveTagFromOrder(name string, cascade bool) error {
 		return err
 	}
 
-	filtered := tags.TagOrder[:0]
+	filtered := make([]string, 0, len(tags.TagOrder))
 	for _, tag := range tags.TagOrder {
 		if tag != normalizedName {
 			filtered = append(filtered, tag)
@@ -345,6 +352,9 @@ func (l *Library) RemoveTagFromOrder(name string, cascade bool) error {
 
 // RenameTag renames a tag in the display order list.
 // If cascade is true, updates the tag in all sidecars that reference the old name.
+// If the old tag is absent from tags.json, only the cascade sidecar update is attempted.
+// Cascade updates are applied sequentially; if a sidecar update fails, already-written
+// sidecars are not rolled back.
 func (l *Library) RenameTag(oldName string, newName string, cascade bool) error {
 	normalizedOld, err := normalizeListName(oldName)
 	if err != nil {
@@ -384,7 +394,9 @@ func (l *Library) RenameTag(oldName string, newName string, cascade bool) error 
 	})
 }
 
-// ReorderTags sets the tag display order.
+// ReorderTags replaces the tag display order list.
+// Unlike ReorderCategories, names do not need to match the existing set because
+// tags.json only controls display order, not the canonical set of tags.
 func (l *Library) ReorderTags(names []string) error {
 	tags, err := l.ReadTagOrder()
 	if err != nil {
@@ -511,6 +523,8 @@ func renameTag(tags []string, oldName string, newName string) ([]string, bool) {
 	return updated, changed
 }
 
+// updateSidecars walks sidecars sequentially and writes back only modified entries.
+// If one write fails, the walk stops and prior sidecar updates are left in place.
 func (l *Library) updateSidecars(update func(meta *SidecarMetadata) bool) error {
 	return filepath.WalkDir(l.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
