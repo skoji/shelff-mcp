@@ -29,6 +29,13 @@ func (e *RollbackError) Error() string {
 	return fmt.Sprintf("operation failed: %v; rollback failed: %v", e.OriginalError, e.RollbackError)
 }
 
-func (e *RollbackError) Unwrap() error {
-	return e.OriginalError
+func (e *RollbackError) Unwrap() []error {
+	var errs []error
+	if e.OriginalError != nil {
+		errs = append(errs, e.OriginalError)
+	}
+	if e.RollbackError != nil {
+		errs = append(errs, e.RollbackError)
+	}
+	return errs
 }
