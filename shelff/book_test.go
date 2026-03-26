@@ -1,0 +1,206 @@
+package shelff_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/skoji/shelff-go/shelff"
+)
+
+func TestMoveBookMovesPDFAndSidecar(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	destDir := filepath.Join(root, "dest")
+	mkdirAll(t, sourceDir, destDir)
+
+	pdfPath := writeTestPDF(t, sourceDir, "book.pdf")
+	if _, err := shelff.CreateSidecar(pdfPath); err != nil {
+		t.Fatalf("CreateSidecar returned error: %v", err)
+	}
+
+	newPDFPath, err := shelff.MoveBook(pdfPath, destDir)
+	if err != nil {
+		t.Fatalf("MoveBook returned error: %v", err)
+	}
+
+	wantPDFPath := filepath.Join(destDir, "book.pdf")
+	if newPDFPath != wantPDFPath {
+		t.Fatalf("newPDFPath = %q, want %q", newPDFPath, wantPDFPath)
+	}
+	assertPathExists(t, newPDFPath)
+	assertPathExists(t, shelff.SidecarPath(newPDFPath))
+	assertPathMissing(t, pdfPath)
+	assertPathMissing(t, shelff.SidecarPath(pdfPath))
+}
+
+func TestMoveBookWithoutSidecarMovesOnlyPDF(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	destDir := filepath.Join(root, "dest")
+	mkdirAll(t, sourceDir, destDir)
+
+	pdfPath := writeTestPDF(t, sourceDir, "book.pdf")
+
+	newPDFPath, err := shelff.MoveBook(pdfPath, destDir)
+	if err != nil {
+		t.Fatalf("MoveBook returned error: %v", err)
+	}
+
+	assertPathExists(t, newPDFPath)
+	assertPathMissing(t, shelff.SidecarPath(newPDFPath))
+	assertPathMissing(t, pdfPath)
+}
+
+func TestMoveBookReturnsErrAlreadyExistsWhenDestinationPDFExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	destDir := filepath.Join(root, "dest")
+	mkdirAll(t, sourceDir, destDir)
+
+	pdfPath := writeTestPDF(t, sourceDir, "book.pdf")
+	writeTestPDF(t, destDir, "book.pdf")
+
+	_, err := shelff.MoveBook(pdfPath, destDir)
+	if !errors.Is(err, shelff.ErrAlreadyExists) {
+		t.Fatalf("MoveBook error = %v, want ErrAlreadyExists", err)
+	}
+
+	assertPathExists(t, pdfPath)
+}
+
+func TestMoveBookRollsBackWhenSidecarMoveFails(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	destDir := filepath.Join(root, "dest")
+	mkdirAll(t, sourceDir, destDir)
+
+	pdfPath := writeTestPDF(t, sourceDir, "book.pdf")
+	if _, err := shelff.CreateSidecar(pdfPath); err != nil {
+		t.Fatalf("CreateSidecar returned error: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(destDir, "book.pdf.meta.json"), 0o755); err != nil {
+		t.Fatalf("os.Mkdir: %v", err)
+	}
+
+	_, err := shelff.MoveBook(pdfPath, destDir)
+	if !errors.Is(err, shelff.ErrAlreadyExists) {
+		t.Fatalf("MoveBook error = %v, want ErrAlreadyExists", err)
+	}
+
+	assertPathExists(t, pdfPath)
+	assertPathExists(t, shelff.SidecarPath(pdfPath))
+	assertPathMissing(t, filepath.Join(destDir, "book.pdf"))
+}
+
+func TestRenameBookRenamesPDFAndSidecar(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	if _, err := shelff.CreateSidecar(pdfPath); err != nil {
+		t.Fatalf("CreateSidecar returned error: %v", err)
+	}
+
+	newPDFPath, err := shelff.RenameBook(pdfPath, "renamed")
+	if err != nil {
+		t.Fatalf("RenameBook returned error: %v", err)
+	}
+
+	wantPDFPath := filepath.Join(root, "renamed.pdf")
+	if newPDFPath != wantPDFPath {
+		t.Fatalf("newPDFPath = %q, want %q", newPDFPath, wantPDFPath)
+	}
+	assertPathExists(t, newPDFPath)
+	assertPathExists(t, shelff.SidecarPath(newPDFPath))
+	assertPathMissing(t, pdfPath)
+	assertPathMissing(t, shelff.SidecarPath(pdfPath))
+}
+
+func TestRenameBookRollsBackWhenSidecarRenameFails(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	if _, err := shelff.CreateSidecar(pdfPath); err != nil {
+		t.Fatalf("CreateSidecar returned error: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "renamed.pdf.meta.json"), 0o755); err != nil {
+		t.Fatalf("os.Mkdir: %v", err)
+	}
+
+	_, err := shelff.RenameBook(pdfPath, "renamed")
+	if !errors.Is(err, shelff.ErrAlreadyExists) {
+		t.Fatalf("RenameBook error = %v, want ErrAlreadyExists", err)
+	}
+
+	assertPathExists(t, pdfPath)
+	assertPathExists(t, shelff.SidecarPath(pdfPath))
+	assertPathMissing(t, filepath.Join(root, "renamed.pdf"))
+}
+
+func TestDeleteBookDeletesPDFAndSidecar(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	if _, err := shelff.CreateSidecar(pdfPath); err != nil {
+		t.Fatalf("CreateSidecar returned error: %v", err)
+	}
+
+	if err := shelff.DeleteBook(pdfPath); err != nil {
+		t.Fatalf("DeleteBook returned error: %v", err)
+	}
+
+	assertPathMissing(t, pdfPath)
+	assertPathMissing(t, shelff.SidecarPath(pdfPath))
+}
+
+func TestDeleteBookWithoutSidecarDeletesOnlyPDF(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+
+	if err := shelff.DeleteBook(pdfPath); err != nil {
+		t.Fatalf("DeleteBook returned error: %v", err)
+	}
+
+	assertPathMissing(t, pdfPath)
+	assertPathMissing(t, shelff.SidecarPath(pdfPath))
+}
+
+func mkdirAll(t *testing.T, paths ...string) {
+	t.Helper()
+
+	for _, path := range paths {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q): %v", path, err)
+		}
+	}
+}
+
+func assertPathExists(t *testing.T, path string) {
+	t.Helper()
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected path %q to exist, stat err = %v", path, err)
+	}
+}
+
+func assertPathMissing(t *testing.T, path string) {
+	t.Helper()
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected path %q to be missing, stat err = %v", path, err)
+	}
+}
