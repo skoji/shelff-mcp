@@ -63,6 +63,71 @@ func TestScanBooksNonRecursiveOnlyReturnsTopLevelPDFs(t *testing.T) {
 	}
 }
 
+func TestScanBooksInDirectoryRecursiveOnlyReturnsRequestedSubtree(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	otherDir := filepath.Join(root, "other")
+	deepDir := filepath.Join(selectedDir, "deep")
+	configDir := filepath.Join(root, shelff.ConfigDir)
+	mkdirAll(t, selectedDir, otherDir, deepDir, configDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	deepPDF := writeTestPDF(t, deepDir, "deep.pdf")
+	writeTestPDF(t, otherDir, "other.pdf")
+	writeTestPDF(t, configDir, "ignored.pdf")
+
+	books, err := library.ScanBooksInDirectory(selectedDir, true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 2 {
+		t.Fatalf("len(books) = %d, want 2", len(books))
+	}
+	if got := findBook(t, books, selectedPDF); got.PDFPath != selectedPDF {
+		t.Fatalf("selected book = %#v, want %q", got, selectedPDF)
+	}
+	if got := findBook(t, books, deepPDF); got.PDFPath != deepPDF {
+		t.Fatalf("deep book = %#v, want %q", got, deepPDF)
+	}
+}
+
+func TestScanBooksInDirectoryNonRecursiveOnlyReturnsDirectChildren(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	deepDir := filepath.Join(selectedDir, "deep")
+	mkdirAll(t, selectedDir, deepDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	writeTestPDF(t, deepDir, "deep.pdf")
+
+	books, err := library.ScanBooksInDirectory(selectedDir, false)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 1 || books[0].PDFPath != selectedPDF {
+		t.Fatalf("books = %#v, want only direct child PDF", books)
+	}
+}
+
+func TestScanBooksInDirectoryRejectsOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	if _, err := library.ScanBooksInDirectory(t.TempDir(), true); err == nil {
+		t.Fatal("ScanBooksInDirectory error = nil, want outside-root error")
+	}
+}
+
 func TestFindOrphanedSidecarsFindsMissingPDFs(t *testing.T) {
 	t.Parallel()
 

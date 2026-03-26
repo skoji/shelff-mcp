@@ -22,7 +22,11 @@ var (
 	ErrAbsolutePath    = errors.New("path must be relative to the library root")
 	ErrPathTraversal   = errors.New("path resolves outside the library root")
 	ErrRootNotProvided = errors.New("library root must be provided via --root or SHELFF_ROOT")
+	ErrInvalidLimit    = errors.New("limit must be greater than 0")
+	ErrInvalidOffset   = errors.New("offset must be greater than or equal to 0")
 )
+
+const defaultScanBooksLimit = 100
 
 type Server struct {
 	library *shelff.Library
@@ -34,7 +38,10 @@ type pdfPathInput struct {
 }
 
 type scanBooksInput struct {
-	Recursive bool `json:"recursive" jsonschema:"Whether to scan subdirectories recursively."`
+	Recursive bool    `json:"recursive" jsonschema:"Whether to scan subdirectories recursively."`
+	Directory *string `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
+	Limit     *int    `json:"limit,omitempty" jsonschema:"Maximum number of books to return. Defaults to 100."`
+	Offset    *int    `json:"offset,omitempty" jsonschema:"Number of filtered books to skip before returning results. Defaults to 0."`
 }
 
 type writeSidecarInput struct {
@@ -81,7 +88,11 @@ type bookPathOutput struct {
 }
 
 type scanBooksOutput struct {
-	Books []bookEntryOutput `json:"books"`
+	Books   []bookEntryOutput `json:"books"`
+	Total   int               `json:"total"`
+	Offset  int               `json:"offset"`
+	Limit   int               `json:"limit"`
+	HasMore bool              `json:"hasMore"`
 }
 
 type bookEntryOutput struct {
@@ -168,7 +179,7 @@ func (s *Server) registerTools() {
 	}, s.renameBook)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "scan_books",
-		Description: "Scan the library for PDF files and whether they have sidecars.",
+		Description: "Scan the library for PDF files and whether they have sidecars, with optional directory filtering and pagination.",
 	}, s.scanBooks)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "find_orphaned_sidecars",
@@ -361,13 +372,49 @@ func (s *Server) renameBook(_ context.Context, _ *mcp.CallToolRequest, in rename
 }
 
 func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBooksInput) (*mcp.CallToolResult, scanBooksOutput, error) {
-	books, err := s.library.ScanBooks(in.Recursive)
+	limit := defaultScanBooksLimit
+	if in.Limit != nil {
+		limit = *in.Limit
+	}
+	if limit <= 0 {
+		return nil, scanBooksOutput{}, ErrInvalidLimit
+	}
+
+	offset := 0
+	if in.Offset != nil {
+		offset = *in.Offset
+	}
+	if offset < 0 {
+		return nil, scanBooksOutput{}, ErrInvalidOffset
+	}
+
+	directory := s.library.Root()
+	if in.Directory != nil && strings.TrimSpace(*in.Directory) != "" {
+		var err error
+		directory, err = s.resolveDirectoryPath(*in.Directory)
+		if err != nil {
+			return nil, scanBooksOutput{}, err
+		}
+	}
+
+	books, err := s.library.ScanBooksInDirectory(directory, in.Recursive)
 	if err != nil {
 		return nil, scanBooksOutput{}, err
 	}
 
-	out := scanBooksOutput{Books: make([]bookEntryOutput, 0, len(books))}
-	for _, book := range books {
+	total := len(books)
+	start := min(offset, total)
+	end := min(start+limit, total)
+	page := books[start:end]
+
+	out := scanBooksOutput{
+		Books:   make([]bookEntryOutput, 0, len(page)),
+		Total:   total,
+		Offset:  offset,
+		Limit:   limit,
+		HasMore: end < total,
+	}
+	for _, book := range page {
 		pdfPath, err := s.relativePath(book.PDFPath)
 		if err != nil {
 			return nil, scanBooksOutput{}, err

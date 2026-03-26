@@ -1,6 +1,7 @@
 package shelff
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,8 +14,28 @@ import (
 // If recursive is true, scans subdirectories.
 // Excludes the .shelff/ config directory from results.
 func (l *Library) ScanBooks(recursive bool) ([]BookEntry, error) {
+	return l.scanBooksFrom(l.root, recursive)
+}
+
+// ScanBooksInDirectory scans a specific directory within the library for PDF
+// files and their sidecar status.
+// If recursive is true, scans subdirectories below dirPath.
+// Excludes the .shelff/ config directory from results.
+func (l *Library) ScanBooksInDirectory(dirPath string, recursive bool) ([]BookEntry, error) {
+	startDir, err := l.resolveScanDirectory(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	return l.scanBooksFrom(startDir, recursive)
+}
+
+func (l *Library) scanBooksFrom(startDir string, recursive bool) ([]BookEntry, error) {
+	if l.isWithinConfigDir(startDir) {
+		return []BookEntry{}, nil
+	}
+
 	entries := make([]BookEntry, 0)
-	err := l.walkLibraryFiles(recursive, func(path string, d fs.DirEntry) error {
+	err := l.walkLibraryFilesFrom(startDir, recursive, func(path string, d fs.DirEntry) error {
 		if !isPDFPath(path) {
 			return nil
 		}
@@ -207,11 +228,15 @@ func (l *Library) CollectAllTags() ([]string, error) {
 }
 
 func (l *Library) walkLibraryFiles(recursive bool, visit func(path string, d fs.DirEntry) error) error {
-	return filepath.WalkDir(l.root, func(path string, d fs.DirEntry, err error) error {
+	return l.walkLibraryFilesFrom(l.root, recursive, visit)
+}
+
+func (l *Library) walkLibraryFilesFrom(startDir string, recursive bool, visit func(path string, d fs.DirEntry) error) error {
+	return filepath.WalkDir(startDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if path == l.root {
+		if path == startDir {
 			return nil
 		}
 
@@ -238,6 +263,52 @@ func (l *Library) walkLibraryFiles(recursive bool, visit func(path string, d fs.
 
 		return visit(path, d)
 	})
+}
+
+func (l *Library) resolveScanDirectory(dirPath string) (string, error) {
+	if strings.TrimSpace(dirPath) == "" {
+		return "", fmt.Errorf("scan directory is empty")
+	}
+
+	absDir, err := filepath.Abs(dirPath)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(absDir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("scan directory is not a directory: %s", absDir)
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(l.root)
+	if err != nil {
+		return "", err
+	}
+	resolvedDir, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, resolvedDir)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("scan directory %q is outside library root %q", absDir, l.root)
+	}
+	return absDir, nil
+}
+
+func (l *Library) isWithinConfigDir(path string) bool {
+	rel, err := filepath.Rel(l.root, path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	return rel == ConfigDir || strings.HasPrefix(rel, ConfigDir+string(filepath.Separator))
 }
 
 func isPDFPath(path string) bool {
