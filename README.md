@@ -1,6 +1,6 @@
 # shelff-go
 
-`shelff-go` is a Go library for working with [shelff](./design/shelff-go-design.md) libraries: directories of PDF files plus JSON sidecars and `.shelff/` configuration files.
+`shelff-go` is a Go library for working with [shelff](https://skoji.dev/en/shelff/) libraries: directories of PDF files plus JSON sidecars and `.shelff/` configuration files.
 
 The current repository scope is the library package, `github.com/skoji/shelff-go/shelff`.
 

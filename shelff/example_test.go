@@ -1,6 +1,7 @@
 package shelff_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -45,7 +46,9 @@ func Example() {
 		panic(err)
 	}
 
-	_ = books
+	fmt.Println("books:", len(books))
+	// Output:
+	// books: 1
 }
 
 func ExampleLibrary_Stats() {
@@ -78,7 +81,11 @@ func ExampleLibrary_Stats() {
 		panic(err)
 	}
 
-	_ = stats
+	fmt.Println("total:", stats.TotalPDFs)
+	fmt.Println("with sidecar:", stats.WithSidecar)
+	// Output:
+	// total: 1
+	// with sidecar: 1
 }
 
 func ExampleLibrary_Validate() {
@@ -106,7 +113,9 @@ func ExampleLibrary_Validate() {
 		panic(err)
 	}
 
-	_ = validationErrors
+	fmt.Println("errors:", len(validationErrors))
+	// Output:
+	// errors: 0
 }
 
 func stringPtr(value string) *string {
