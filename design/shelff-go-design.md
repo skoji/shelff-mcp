@@ -231,7 +231,7 @@ func ReadSidecar(pdfPath string) (*SidecarMetadata, error)
 func CreateSidecar(pdfPath string) (*SidecarMetadata, error)
 
 // WriteSidecar writes the sidecar JSON for the given PDF.
-// Preserves unknown fields from the original JSON (round-trip preservation).
+// Preserves unknown top-level fields from the original JSON (round-trip preservation).
 // Creates the file if it does not exist; overwrites if it does.
 // The file is written atomically (write to temp + rename).
 // Output is pretty-printed with sorted keys.
@@ -398,7 +398,7 @@ Where `"book"` is the PDF filename with the `.pdf` extension removed. For `"My R
 
 ### 5.3 Round-trip Preservation
 
-This is a **critical requirement**. Implementations must not discard unknown fields when reading and writing sidecar files.
+This is a **critical requirement**. Implementations must not discard unknown **top-level** fields when reading and writing sidecar files.
 
 **Strategy in Go**:
 
@@ -407,17 +407,17 @@ This is a **critical requirement**. Implementations must not discard unknown fie
    a. Marshal the typed `SidecarMetadata` to `map[string]any` via `json.Marshal` → `json.Unmarshal`.
    b. If `rawJSON` is non-nil, unmarshal it to `map[string]any` (the original).
    c. Copy unknown top-level keys from the original into the new map.
-   d. For the `metadata` object: repeat the same merge (unknown keys within `metadata` are preserved).
+   d. Do **not** preserve unknown keys within `metadata`; when `metadata` is rewritten, only the known Dublin Core keys represented by `DublinCore` are emitted.
    e. For optional top-level keys (`reading`, `display`, `category`, `tags`): if the typed struct has them as nil/zero, do NOT copy old values from the original. Explicit nil means "removed".
    f. Serialize the merged map with `json.MarshalIndent` (pretty-printed, sorted keys).
 
 **Known top-level keys** (anything else is unknown and must be preserved):
 `schemaVersion`, `metadata`, `reading`, `display`, `category`, `tags`
 
-**Known metadata keys** (anything else within `metadata` is unknown and must be preserved):
+**Known metadata keys** (anything else within `metadata` is rewritten away):
 `dc:title`, `dc:creator`, `dc:date`, `dc:publisher`, `dc:language`, `dc:subject`, `dc:identifier`
 
-**Example**: A sidecar contains `"x-calibre-id": 42` at the top level and `"dcterms:modified": "2025-01-01"` inside `metadata`. After shelff-go reads, modifies `dc:title`, and writes back, both `x-calibre-id` and `dcterms:modified` must be present in the output.
+**Example**: A sidecar contains `"x-calibre-id": 42` at the top level and `"dcterms:modified": "2025-01-01"` inside `metadata`. After shelff-go reads, modifies `dc:title`, and writes back, `x-calibre-id` must still be present, but `dcterms:modified` is not preserved.
 
 ### 5.4 JSON Output Format
 
@@ -494,7 +494,7 @@ Validate checks:
 - Enum values valid
 - `schemaVersion` / `version` equals 1
 
-Validation does NOT reject unknown fields (schemas use `additionalProperties: true` at the top level and in metadata).
+Validation does NOT reject unknown fields (schemas use `additionalProperties: true` at the top level and in metadata), even though unknown keys within `metadata` are not preserved by shelff-go when rewriting.
 
 ## 6. Error Types
 
@@ -621,7 +621,7 @@ Each test creates a temporary directory (`t.TempDir()`) as a library root. Tests
 
 **Round-trip preservation**:
 - Write a sidecar with unknown top-level field `"x-custom": 42` → read, modify dc:title, write back → `"x-custom"` still present
-- Same for unknown field inside `metadata` (e.g., `"dcterms:modified": "..."`)
+- Unknown field inside `metadata` (e.g., `"dcterms:modified": "..."`) is dropped on rewrite
 - Optional fields set to nil are not resurrected from original JSON
 
 **dc:date precision**:
