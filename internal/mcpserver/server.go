@@ -42,9 +42,42 @@ type writeSidecarInput struct {
 	Sidecar map[string]any `json:"sidecar" jsonschema:"Partial sidecar object to merge into the existing sidecar."`
 }
 
+type moveBookInput struct {
+	PDFPath string `json:"pdfPath" jsonschema:"Path to a PDF relative to the library root."`
+	DestDir string `json:"destDir" jsonschema:"Destination directory relative to the library root."`
+}
+
+type renameBookInput struct {
+	PDFPath string `json:"pdfPath" jsonschema:"Path to a PDF relative to the library root."`
+	NewName string `json:"newName" jsonschema:"New PDF base name, with or without the .pdf suffix."`
+}
+
+type nameInput struct {
+	Name string `json:"name" jsonschema:"Name to add or remove."`
+}
+
+type cascadeNameInput struct {
+	Name    string `json:"name" jsonschema:"Name to remove."`
+	Cascade bool   `json:"cascade" jsonschema:"Whether to update matching sidecars too."`
+}
+
+type renameConfigInput struct {
+	OldName string `json:"oldName" jsonschema:"Existing name."`
+	NewName string `json:"newName" jsonschema:"Replacement name."`
+	Cascade bool   `json:"cascade" jsonschema:"Whether to update matching sidecars too."`
+}
+
+type reorderNamesInput struct {
+	Names []string `json:"names" jsonschema:"Replacement ordered list of names."`
+}
+
 type readSidecarOutput struct {
 	Exists  bool                    `json:"exists"`
 	Sidecar *shelff.SidecarMetadata `json:"sidecar,omitempty"`
+}
+
+type bookPathOutput struct {
+	PDFPath string `json:"pdfPath"`
 }
 
 type scanBooksOutput struct {
@@ -126,6 +159,14 @@ func (s *Server) registerTools() {
 		Description: "Delete the sidecar for a PDF if it exists.",
 	}, s.deleteSidecar)
 	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "move_book",
+		Description: "Move a PDF and its sidecar to a different directory within the library.",
+	}, s.moveBook)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "rename_book",
+		Description: "Rename a PDF and its sidecar within the same directory.",
+	}, s.renameBook)
+	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "scan_books",
 		Description: "Scan the library for PDF files and whether they have sidecars.",
 	}, s.scanBooks)
@@ -150,9 +191,41 @@ func (s *Server) registerTools() {
 		Description: "Read the category configuration file.",
 	}, s.readCategories)
 	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "add_category",
+		Description: "Add a category to the configuration list.",
+	}, s.addCategory)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "remove_category",
+		Description: "Remove a category from the configuration list, optionally cascading to sidecars.",
+	}, s.removeCategory)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "rename_category",
+		Description: "Rename a category in the configuration list, optionally cascading to sidecars.",
+	}, s.renameCategory)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "reorder_categories",
+		Description: "Replace the category order with the provided ordered name list.",
+	}, s.reorderCategories)
+	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "read_tag_order",
 		Description: "Read the tag ordering configuration file.",
 	}, s.readTagOrder)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "add_tag_to_order",
+		Description: "Add a tag to the display order list.",
+	}, s.addTagToOrder)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "remove_tag_from_order",
+		Description: "Remove a tag from the display order list, optionally cascading to sidecars.",
+	}, s.removeTagFromOrder)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "rename_tag",
+		Description: "Rename a tag in the display order list, optionally cascading to sidecars.",
+	}, s.renameTag)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "reorder_tags",
+		Description: "Replace the tag display order list.",
+	}, s.reorderTags)
 }
 
 func (s *Server) readSidecar(_ context.Context, _ *mcp.CallToolRequest, in pdfPathInput) (*mcp.CallToolResult, readSidecarOutput, error) {
@@ -249,6 +322,44 @@ func (s *Server) deleteSidecar(_ context.Context, _ *mcp.CallToolRequest, in pdf
 	}
 }
 
+func (s *Server) moveBook(_ context.Context, _ *mcp.CallToolRequest, in moveBookInput) (*mcp.CallToolResult, bookPathOutput, error) {
+	pdfPath, err := s.resolvePath(in.PDFPath)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+	destDir, err := s.resolvePath(in.DestDir)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+
+	newPDFPath, err := shelff.MoveBook(pdfPath, destDir)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+	relative, err := s.relativePath(newPDFPath)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+	return nil, bookPathOutput{PDFPath: relative}, nil
+}
+
+func (s *Server) renameBook(_ context.Context, _ *mcp.CallToolRequest, in renameBookInput) (*mcp.CallToolResult, bookPathOutput, error) {
+	pdfPath, err := s.resolvePath(in.PDFPath)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+
+	newPDFPath, err := shelff.RenameBook(pdfPath, in.NewName)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+	relative, err := s.relativePath(newPDFPath)
+	if err != nil {
+		return nil, bookPathOutput{}, err
+	}
+	return nil, bookPathOutput{PDFPath: relative}, nil
+}
+
 func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBooksInput) (*mcp.CallToolResult, scanBooksOutput, error) {
 	books, err := s.library.ScanBooks(in.Recursive)
 	if err != nil {
@@ -338,12 +449,68 @@ func (s *Server) readCategories(_ context.Context, _ *mcp.CallToolRequest, _ str
 	return nil, *categories, nil
 }
 
+func (s *Server) addCategory(_ context.Context, _ *mcp.CallToolRequest, in nameInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+	if err := s.library.AddCategory(in.Name); err != nil {
+		return nil, shelff.CategoryList{}, err
+	}
+	return s.readCategories(context.Background(), nil, struct{}{})
+}
+
+func (s *Server) removeCategory(_ context.Context, _ *mcp.CallToolRequest, in cascadeNameInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+	if err := s.library.RemoveCategory(in.Name, in.Cascade); err != nil {
+		return nil, shelff.CategoryList{}, err
+	}
+	return s.readCategories(context.Background(), nil, struct{}{})
+}
+
+func (s *Server) renameCategory(_ context.Context, _ *mcp.CallToolRequest, in renameConfigInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+	if err := s.library.RenameCategory(in.OldName, in.NewName, in.Cascade); err != nil {
+		return nil, shelff.CategoryList{}, err
+	}
+	return s.readCategories(context.Background(), nil, struct{}{})
+}
+
+func (s *Server) reorderCategories(_ context.Context, _ *mcp.CallToolRequest, in reorderNamesInput) (*mcp.CallToolResult, shelff.CategoryList, error) {
+	if err := s.library.ReorderCategories(in.Names); err != nil {
+		return nil, shelff.CategoryList{}, err
+	}
+	return s.readCategories(context.Background(), nil, struct{}{})
+}
+
 func (s *Server) readTagOrder(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, shelff.TagOrder, error) {
 	tagOrder, err := s.library.ReadTagOrder()
 	if err != nil {
 		return nil, shelff.TagOrder{}, err
 	}
 	return nil, *tagOrder, nil
+}
+
+func (s *Server) addTagToOrder(_ context.Context, _ *mcp.CallToolRequest, in nameInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+	if err := s.library.AddTagToOrder(in.Name); err != nil {
+		return nil, shelff.TagOrder{}, err
+	}
+	return s.readTagOrder(context.Background(), nil, struct{}{})
+}
+
+func (s *Server) removeTagFromOrder(_ context.Context, _ *mcp.CallToolRequest, in cascadeNameInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+	if err := s.library.RemoveTagFromOrder(in.Name, in.Cascade); err != nil {
+		return nil, shelff.TagOrder{}, err
+	}
+	return s.readTagOrder(context.Background(), nil, struct{}{})
+}
+
+func (s *Server) renameTag(_ context.Context, _ *mcp.CallToolRequest, in renameConfigInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+	if err := s.library.RenameTag(in.OldName, in.NewName, in.Cascade); err != nil {
+		return nil, shelff.TagOrder{}, err
+	}
+	return s.readTagOrder(context.Background(), nil, struct{}{})
+}
+
+func (s *Server) reorderTags(_ context.Context, _ *mcp.CallToolRequest, in reorderNamesInput) (*mcp.CallToolResult, shelff.TagOrder, error) {
+	if err := s.library.ReorderTags(in.Names); err != nil {
+		return nil, shelff.TagOrder{}, err
+	}
+	return s.readTagOrder(context.Background(), nil, struct{}{})
 }
 
 func openCanonicalLibrary(root string) (*shelff.Library, error) {
@@ -588,17 +755,27 @@ func cloneJSONValue(value any) any {
 
 func toolNames() []string {
 	names := []string{
+		"add_category",
+		"add_tag_to_order",
 		"read_sidecar",
 		"create_sidecar",
 		"write_sidecar",
 		"delete_sidecar",
+		"move_book",
+		"rename_book",
 		"scan_books",
 		"find_orphaned_sidecars",
 		"validate_sidecar",
 		"library_stats",
 		"collect_all_tags",
 		"read_categories",
+		"remove_category",
+		"rename_category",
+		"reorder_categories",
 		"read_tag_order",
+		"remove_tag_from_order",
+		"rename_tag",
+		"reorder_tags",
 	}
 	slices.Sort(names)
 	return names

@@ -380,6 +380,254 @@ func TestSidecarMutationTools(t *testing.T) {
 	}
 }
 
+func TestBookAndConfigMutationTools(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	incomingDir := filepath.Join(root, "incoming")
+	destDir := filepath.Join(root, "shelf")
+	if err := os.MkdirAll(incomingDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll incoming error = %v", err)
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll shelf error = %v", err)
+	}
+
+	pdfPath := writeTestPDF(t, incomingDir, "book.pdf")
+	sidecar, err := shelff.CreateSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("CreateSidecar error = %v", err)
+	}
+	category := "Reference"
+	sidecar.Category = &category
+	sidecar.Tags = []string{"go", "mcp"}
+	if err := shelff.WriteSidecar(pdfPath, sidecar); err != nil {
+		t.Fatalf("WriteSidecar error = %v", err)
+	}
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	moveResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "move_book",
+		Arguments: map[string]any{
+			"pdfPath": "incoming/book.pdf",
+			"destDir": "shelf",
+		},
+	})
+	if err != nil {
+		t.Fatalf("move_book error = %v", err)
+	}
+	var bookOut bookPathOutput
+	decodeStructuredContent(t, moveResult, &bookOut)
+	if bookOut.PDFPath != "shelf/book.pdf" {
+		t.Fatalf("move_book output = %#v, want shelf/book.pdf", bookOut)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(bookOut.PDFPath))); err != nil {
+		t.Fatalf("moved PDF missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "incoming", "book.pdf")); !os.IsNotExist(err) {
+		t.Fatalf("source PDF still exists after move_book: %v", err)
+	}
+
+	renameResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "rename_book",
+		Arguments: map[string]any{
+			"pdfPath": bookOut.PDFPath,
+			"newName": "renamed.pdf",
+		},
+	})
+	if err != nil {
+		t.Fatalf("rename_book error = %v", err)
+	}
+	bookOut = bookPathOutput{}
+	decodeStructuredContent(t, renameResult, &bookOut)
+	if bookOut.PDFPath != "shelf/renamed.pdf" {
+		t.Fatalf("rename_book output = %#v, want shelf/renamed.pdf", bookOut)
+	}
+	renamedPDFPath := filepath.Join(root, filepath.FromSlash(bookOut.PDFPath))
+	if _, err := os.Stat(renamedPDFPath); err != nil {
+		t.Fatalf("renamed PDF missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "shelf", "book.pdf")); !os.IsNotExist(err) {
+		t.Fatalf("old PDF still exists after rename_book: %v", err)
+	}
+	if _, err := os.Stat(shelff.SidecarPath(renamedPDFPath)); err != nil {
+		t.Fatalf("renamed sidecar missing: %v", err)
+	}
+
+	addCategoryResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "add_category",
+		Arguments: map[string]any{"name": " Reference "},
+	})
+	if err != nil {
+		t.Fatalf("add_category error = %v", err)
+	}
+	var categoriesOut shelff.CategoryList
+	decodeStructuredContent(t, addCategoryResult, &categoriesOut)
+	if len(categoriesOut.Categories) != 1 || categoriesOut.Categories[0].Name != "Reference" {
+		t.Fatalf("add_category output = %#v", categoriesOut)
+	}
+
+	renameCategoryResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "rename_category",
+		Arguments: map[string]any{
+			"oldName": "Reference",
+			"newName": "Docs",
+			"cascade": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("rename_category error = %v", err)
+	}
+	categoriesOut = shelff.CategoryList{}
+	decodeStructuredContent(t, renameCategoryResult, &categoriesOut)
+	if len(categoriesOut.Categories) != 1 || categoriesOut.Categories[0].Name != "Docs" {
+		t.Fatalf("rename_category output = %#v", categoriesOut)
+	}
+	renamedSidecar, err := shelff.ReadSidecar(renamedPDFPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar after rename_category error = %v", err)
+	}
+	if renamedSidecar == nil || renamedSidecar.Category == nil || *renamedSidecar.Category != "Docs" {
+		t.Fatalf("renamed sidecar category = %#v, want Docs", renamedSidecar)
+	}
+
+	addCategoryResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "add_category",
+		Arguments: map[string]any{"name": "Archive"},
+	})
+	if err != nil {
+		t.Fatalf("second add_category error = %v", err)
+	}
+	decodeStructuredContent(t, addCategoryResult, &categoriesOut)
+	if len(categoriesOut.Categories) != 2 {
+		t.Fatalf("second add_category output = %#v", categoriesOut)
+	}
+
+	reorderCategoriesResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "reorder_categories",
+		Arguments: map[string]any{"names": []any{"Archive", "Docs"}},
+	})
+	if err != nil {
+		t.Fatalf("reorder_categories error = %v", err)
+	}
+	categoriesOut = shelff.CategoryList{}
+	decodeStructuredContent(t, reorderCategoriesResult, &categoriesOut)
+	if len(categoriesOut.Categories) != 2 || categoriesOut.Categories[0].Name != "Archive" || categoriesOut.Categories[1].Name != "Docs" {
+		t.Fatalf("reorder_categories output = %#v", categoriesOut)
+	}
+
+	removeCategoryResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "remove_category",
+		Arguments: map[string]any{
+			"name":    "Docs",
+			"cascade": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("remove_category error = %v", err)
+	}
+	categoriesOut = shelff.CategoryList{}
+	decodeStructuredContent(t, removeCategoryResult, &categoriesOut)
+	if len(categoriesOut.Categories) != 1 || categoriesOut.Categories[0].Name != "Archive" {
+		t.Fatalf("remove_category output = %#v", categoriesOut)
+	}
+	renamedSidecar, err = shelff.ReadSidecar(renamedPDFPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar after remove_category error = %v", err)
+	}
+	if renamedSidecar == nil || renamedSidecar.Category != nil {
+		t.Fatalf("sidecar category after remove_category = %#v, want nil", renamedSidecar)
+	}
+
+	addTagResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "add_tag_to_order",
+		Arguments: map[string]any{"name": " go "},
+	})
+	if err != nil {
+		t.Fatalf("add_tag_to_order error = %v", err)
+	}
+	var tagOrderOut shelff.TagOrder
+	decodeStructuredContent(t, addTagResult, &tagOrderOut)
+	if !slices.Equal(tagOrderOut.TagOrder, []string{"go"}) {
+		t.Fatalf("add_tag_to_order output = %#v", tagOrderOut)
+	}
+
+	addTagResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "add_tag_to_order",
+		Arguments: map[string]any{"name": "mcp"},
+	})
+	if err != nil {
+		t.Fatalf("second add_tag_to_order error = %v", err)
+	}
+	decodeStructuredContent(t, addTagResult, &tagOrderOut)
+	if !slices.Equal(tagOrderOut.TagOrder, []string{"go", "mcp"}) {
+		t.Fatalf("second add_tag_to_order output = %#v", tagOrderOut)
+	}
+
+	renameTagResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "rename_tag",
+		Arguments: map[string]any{
+			"oldName": "go",
+			"newName": "golang",
+			"cascade": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("rename_tag error = %v", err)
+	}
+	tagOrderOut = shelff.TagOrder{}
+	decodeStructuredContent(t, renameTagResult, &tagOrderOut)
+	if !slices.Equal(tagOrderOut.TagOrder, []string{"golang", "mcp"}) {
+		t.Fatalf("rename_tag output = %#v", tagOrderOut)
+	}
+	renamedSidecar, err = shelff.ReadSidecar(renamedPDFPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar after rename_tag error = %v", err)
+	}
+	if renamedSidecar == nil || !slices.Equal(renamedSidecar.Tags, []string{"golang", "mcp"}) {
+		t.Fatalf("sidecar tags after rename_tag = %#v", renamedSidecar)
+	}
+
+	reorderTagsResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "reorder_tags",
+		Arguments: map[string]any{"names": []any{"mcp", " golang ", "extra"}},
+	})
+	if err != nil {
+		t.Fatalf("reorder_tags error = %v", err)
+	}
+	tagOrderOut = shelff.TagOrder{}
+	decodeStructuredContent(t, reorderTagsResult, &tagOrderOut)
+	if !slices.Equal(tagOrderOut.TagOrder, []string{"mcp", "golang", "extra"}) {
+		t.Fatalf("reorder_tags output = %#v", tagOrderOut)
+	}
+
+	removeTagResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "remove_tag_from_order",
+		Arguments: map[string]any{
+			"name":    "mcp",
+			"cascade": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("remove_tag_from_order error = %v", err)
+	}
+	tagOrderOut = shelff.TagOrder{}
+	decodeStructuredContent(t, removeTagResult, &tagOrderOut)
+	if !slices.Equal(tagOrderOut.TagOrder, []string{"golang", "extra"}) {
+		t.Fatalf("remove_tag_from_order output = %#v", tagOrderOut)
+	}
+	renamedSidecar, err = shelff.ReadSidecar(renamedPDFPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar after remove_tag_from_order error = %v", err)
+	}
+	if renamedSidecar == nil || !slices.Equal(renamedSidecar.Tags, []string{"golang"}) {
+		t.Fatalf("sidecar tags after remove_tag_from_order = %#v", renamedSidecar)
+	}
+}
+
 func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 	t.Parallel()
 
