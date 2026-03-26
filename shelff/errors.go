@@ -17,6 +17,7 @@ var (
 	ErrCategoryMismatch      = errors.New("category names do not match existing set")
 	ErrInvalidSchemaVersion  = errors.New("unsupported schema version")
 	ErrLibraryNotFound       = errors.New("library root is missing or not a directory")
+	ErrNilSidecarMetadata    = errors.New("sidecar metadata is nil")
 )
 
 // RollbackError is returned when an operation and its rollback both fail.

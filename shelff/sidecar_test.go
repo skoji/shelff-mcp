@@ -1,10 +1,12 @@
 package shelff_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -192,7 +194,7 @@ func TestWriteSidecarPreservesUnknownFields(t *testing.T) {
 	}
 
 	decoded := decodeJSONFile(t, shelff.SidecarPath(pdfPath))
-	if decoded["x-calibre-id"].(float64) != 42 {
+	if decoded["x-calibre-id"].(json.Number).String() != "42" {
 		t.Fatalf("x-calibre-id = %#v, want 42", decoded["x-calibre-id"])
 	}
 
@@ -202,6 +204,36 @@ func TestWriteSidecarPreservesUnknownFields(t *testing.T) {
 	}
 	if metadata["dcterms:modified"] != "2025-01-01" {
 		t.Fatalf("metadata.dcterms:modified = %#v, want %q", metadata["dcterms:modified"], "2025-01-01")
+	}
+}
+
+func TestWriteSidecarPreservesLargeUnknownInteger(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const original = `{
+  "metadata": {
+    "dc:title": "Original"
+  },
+  "schemaVersion": 1,
+  "x-large-id": 9007199254740993
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(original))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	meta.Metadata.Title = "Updated"
+
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	data := string(readFile(t, shelff.SidecarPath(pdfPath)))
+	if !strings.Contains(data, `"x-large-id": 9007199254740993`) {
+		t.Fatalf("expected preserved large integer in file, got %s", data)
 	}
 }
 
@@ -332,6 +364,50 @@ func TestDeleteSidecarIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestWriteSidecarReturnsErrNilSidecarMetadata(t *testing.T) {
+	t.Parallel()
+
+	pdfPath := filepath.Join(t.TempDir(), "book.pdf")
+	err := shelff.WriteSidecar(pdfPath, nil)
+	if !errors.Is(err, shelff.ErrNilSidecarMetadata) {
+		t.Fatalf("WriteSidecar error = %v, want ErrNilSidecarMetadata", err)
+	}
+}
+
+func TestWriteSidecarPreservesExistingFileMode(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("permission mode assertions are not portable on Windows")
+	}
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	sidecarPath := shelff.SidecarPath(pdfPath)
+	writeFile(t, sidecarPath, []byte("{\n  \"metadata\": {\n    \"dc:title\": \"Original\"\n  },\n  \"schemaVersion\": 1\n}"))
+	if err := os.Chmod(sidecarPath, 0o600); err != nil {
+		t.Fatalf("os.Chmod: %v", err)
+	}
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	meta.Metadata.Title = "Updated"
+
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	info, err := os.Stat(sidecarPath)
+	if err != nil {
+		t.Fatalf("os.Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("sidecar mode = %#o, want %#o", got, 0o600)
+	}
+}
+
 func writeTestPDF(t *testing.T, dir string, name string) string {
 	t.Helper()
 
@@ -363,7 +439,9 @@ func decodeJSONFile(t *testing.T, path string) map[string]any {
 
 	data := readFile(t, path)
 	var decoded map[string]any
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
 		t.Fatalf("json.Unmarshal(%q): %v", path, err)
 	}
 	return decoded

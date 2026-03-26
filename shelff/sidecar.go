@@ -1,8 +1,8 @@
 package shelff
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,8 +10,6 @@ import (
 )
 
 var (
-	errNilSidecarMetadata = errors.New("sidecar metadata is nil")
-
 	knownSidecarTopLevelKeys = map[string]struct{}{
 		"schemaVersion": {},
 		"metadata":      {},
@@ -85,9 +83,10 @@ func CreateSidecar(pdfPath string) (*SidecarMetadata, error) {
 }
 
 // WriteSidecar writes the sidecar JSON for the given PDF.
+// It does not verify that the PDF file itself currently exists.
 func WriteSidecar(pdfPath string, meta *SidecarMetadata) error {
 	if meta == nil {
-		return errNilSidecarMetadata
+		return ErrNilSidecarMetadata
 	}
 
 	normalized := normalizeSidecarMetadata(meta)
@@ -126,7 +125,7 @@ func WriteSidecar(pdfPath string, meta *SidecarMetadata) error {
 		return err
 	}
 
-	meta.rawJSON = append(meta.rawJSON[:0], data...)
+	meta.rawJSON = append([]byte(nil), data...)
 	return nil
 }
 
@@ -171,7 +170,9 @@ func sidecarMetadataToMap(meta *SidecarMetadata) (map[string]any, error) {
 
 func jsonBytesToMap(data []byte) (map[string]any, error) {
 	var result map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&result); err != nil {
 		return nil, err
 	}
 	if result == nil {
@@ -203,6 +204,11 @@ func mergeUnknownKeys(dst map[string]any, src map[string]any, knownKeys map[stri
 }
 
 func writeFileAtomically(path string, data []byte) (err error) {
+	mode, err := fileModeForAtomicWrite(path)
+	if err != nil {
+		return err
+	}
+
 	dir := filepath.Dir(path)
 	tmpFile, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -212,12 +218,18 @@ func writeFileAtomically(path string, data []byte) (err error) {
 	tmpPath := tmpFile.Name()
 	defer func() {
 		if err != nil {
+			_ = tmpFile.Close()
 			_ = os.Remove(tmpPath)
 		}
 	}()
 
+	if err = tmpFile.Chmod(mode); err != nil {
+		return err
+	}
 	if _, err = tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
+		return err
+	}
+	if err = tmpFile.Sync(); err != nil {
 		return err
 	}
 	if err = tmpFile.Close(); err != nil {
@@ -228,4 +240,15 @@ func writeFileAtomically(path string, data []byte) (err error) {
 	}
 
 	return nil
+}
+
+func fileModeForAtomicWrite(path string) (os.FileMode, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.Mode().Perm(), nil
+	}
+	if os.IsNotExist(err) {
+		return 0o644, nil
+	}
+	return 0, err
 }
