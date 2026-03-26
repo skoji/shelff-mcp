@@ -182,7 +182,7 @@ func TestValidateReturnsErrorsForInvalidSidecar(t *testing.T) {
 	}
 
 	joined := strings.Join(errs, "\n")
-	for _, needle := range []string{"const 1", "missing required property \"dc:title\"", "invalid date-time", "expected one of", ">= 1"} {
+	for _, needle := range []string{"const:", "missing properties", "invalid date-time", "enum:", "minimum:"} {
 		if !strings.Contains(joined, needle) {
 			t.Fatalf("validation errors %q do not contain %q", joined, needle)
 		}

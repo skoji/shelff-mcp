@@ -7,25 +7,25 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 //go:embed schema/sidecar.schema.json
 var embeddedSidecarSchema []byte
 
-type jsonSchema struct {
-	Type                 string                 `json:"type"`
-	Required             []string               `json:"required"`
-	AdditionalProperties *bool                  `json:"additionalProperties,omitempty"`
-	Properties           map[string]*jsonSchema `json:"properties,omitempty"`
-	Items                *jsonSchema            `json:"items,omitempty"`
-	Ref                  string                 `json:"$ref,omitempty"`
-	Const                any                    `json:"const,omitempty"`
-	Enum                 []string               `json:"enum,omitempty"`
-	Minimum              *int64                 `json:"minimum,omitempty"`
-	Format               string                 `json:"format,omitempty"`
-	Defs                 map[string]*jsonSchema `json:"$defs,omitempty"`
-}
+var loadSidecarSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(embeddedSidecarSchema, &schema); err != nil {
+		return nil, err
+	}
+	if _, err := schema.Resolve(nil); err != nil {
+		return nil, err
+	}
+	return &schema, nil
+})
 
 // Validate validates a sidecar JSON file against the schema.
 // Returns a list of validation errors (empty if valid).
@@ -42,6 +42,7 @@ func (l *Library) Validate(pdfPath string) ([]string, error) {
 	if err != nil {
 		return []string{fmt.Sprintf("invalid JSON: %v", err)}, nil
 	}
+	value = normalizeJSONValue(value).(map[string]any)
 
 	schema, err := loadSidecarSchema()
 	if err != nil {
@@ -49,158 +50,183 @@ func (l *Library) Validate(pdfPath string) ([]string, error) {
 	}
 
 	var validationErrors []string
-	validateJSONValue("$", value, schema, schema, &validationErrors)
+	seen := make(map[string]struct{})
+	collectValidationErrors("$", value, schema, schema, &validationErrors, seen)
 	return validationErrors, nil
 }
 
-func loadSidecarSchema() (*jsonSchema, error) {
-	var schema jsonSchema
-	if err := json.Unmarshal(embeddedSidecarSchema, &schema); err != nil {
-		return nil, err
-	}
-	return &schema, nil
-}
-
-func validateJSONValue(path string, value any, schema *jsonSchema, root *jsonSchema, errs *[]string) {
+func collectValidationErrors(path string, value any, schema *jsonschema.Schema, root *jsonschema.Schema, errs *[]string, seen map[string]struct{}) {
 	schema = resolveSchema(schema, root)
 	if schema == nil {
 		return
 	}
 
-	if schema.Const != nil && !matchesConst(value, schema.Const) {
-		*errs = append(*errs, fmt.Sprintf("%s: expected const %v, got %v", path, schema.Const, value))
+	if err := validateLocally(value, schema); err != nil {
+		appendValidationError(errs, seen, fmt.Sprintf("%s: %v", path, err))
 	}
 
-	switch schema.Type {
-	case "object":
-		validateJSONObject(path, value, schema, root, errs)
-	case "array":
-		validateJSONArray(path, value, schema, root, errs)
-	case "string":
-		validateJSONString(path, value, schema, errs)
-	case "integer":
-		validateJSONInteger(path, value, schema, errs)
-	}
-}
-
-func validateJSONObject(path string, value any, schema *jsonSchema, root *jsonSchema, errs *[]string) {
-	object, ok := value.(map[string]any)
-	if !ok {
-		*errs = append(*errs, fmt.Sprintf("%s: expected object", path))
-		return
-	}
-
-	for _, required := range schema.Required {
-		if _, ok := object[required]; !ok {
-			*errs = append(*errs, fmt.Sprintf("%s: missing required property %q", path, required))
-		}
-	}
-
-	for key, child := range schema.Properties {
-		if childValue, ok := object[key]; ok {
-			validateJSONValue(joinJSONPath(path, key), childValue, child, root, errs)
-		}
-	}
-
-	if schema.AdditionalProperties != nil && !*schema.AdditionalProperties {
-		for key := range object {
-			if _, ok := schema.Properties[key]; !ok {
-				*errs = append(*errs, fmt.Sprintf("%s: unexpected property %q", path, key))
+	if schema.Format == "date-time" {
+		if stringValue, ok := value.(string); ok {
+			if _, err := time.Parse(time.RFC3339, stringValue); err != nil {
+				appendValidationError(errs, seen, fmt.Sprintf("%s: invalid date-time %q", path, stringValue))
 			}
 		}
 	}
-}
 
-func validateJSONArray(path string, value any, schema *jsonSchema, root *jsonSchema, errs *[]string) {
-	array, ok := value.([]any)
-	if !ok {
-		*errs = append(*errs, fmt.Sprintf("%s: expected array", path))
-		return
-	}
-	if schema.Items == nil {
-		return
-	}
-	for i, item := range array {
-		validateJSONValue(fmt.Sprintf("%s[%d]", path, i), item, schema.Items, root, errs)
-	}
-}
+	if isObjectSchema(schema) {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return
+		}
 
-func validateJSONString(path string, value any, schema *jsonSchema, errs *[]string) {
-	stringValue, ok := value.(string)
-	if !ok {
-		*errs = append(*errs, fmt.Sprintf("%s: expected string", path))
+		propertyNames := mapsKeys(schema.Properties)
+		slices.Sort(propertyNames)
+		for _, key := range propertyNames {
+			childValue, ok := object[key]
+			if !ok {
+				continue
+			}
+			collectValidationErrors(joinJSONPath(path, key), childValue, schema.Properties[key], root, errs, seen)
+		}
 		return
 	}
 
-	if len(schema.Enum) > 0 && !slices.Contains(schema.Enum, stringValue) {
-		*errs = append(*errs, fmt.Sprintf("%s: expected one of %v, got %q", path, schema.Enum, stringValue))
-	}
-	if schema.Format == "date-time" {
-		if _, err := time.Parse(time.RFC3339, stringValue); err != nil {
-			*errs = append(*errs, fmt.Sprintf("%s: invalid date-time %q", path, stringValue))
+	if isArraySchema(schema) {
+		array, ok := value.([]any)
+		if !ok {
+			return
+		}
+		if schema.Items == nil {
+			return
+		}
+		for i, item := range array {
+			collectValidationErrors(fmt.Sprintf("%s[%d]", path, i), item, schema.Items, root, errs, seen)
 		}
 	}
 }
 
-func validateJSONInteger(path string, value any, schema *jsonSchema, errs *[]string) {
-	integerValue, ok := asInt64(value)
-	if !ok {
-		*errs = append(*errs, fmt.Sprintf("%s: expected integer", path))
-		return
+func validateLocally(value any, schema *jsonschema.Schema) error {
+	localSchema := localValidationSchema(schema)
+	resolved, err := localSchema.Resolve(nil)
+	if err != nil {
+		return err
 	}
-
-	if schema.Minimum != nil && integerValue < *schema.Minimum {
-		*errs = append(*errs, fmt.Sprintf("%s: expected integer >= %d, got %d", path, *schema.Minimum, integerValue))
-	}
+	return resolved.Validate(value)
 }
 
-func resolveSchema(schema *jsonSchema, root *jsonSchema) *jsonSchema {
+func localValidationSchema(schema *jsonschema.Schema) *jsonschema.Schema {
+	local := &jsonschema.Schema{
+		Type:             schema.Type,
+		Types:            slices.Clone(schema.Types),
+		Enum:             slices.Clone(schema.Enum),
+		Const:            schema.Const,
+		MultipleOf:       schema.MultipleOf,
+		Minimum:          schema.Minimum,
+		Maximum:          schema.Maximum,
+		ExclusiveMinimum: schema.ExclusiveMinimum,
+		ExclusiveMaximum: schema.ExclusiveMaximum,
+		MinLength:        schema.MinLength,
+		MaxLength:        schema.MaxLength,
+		Pattern:          schema.Pattern,
+		MinItems:         schema.MinItems,
+		MaxItems:         schema.MaxItems,
+		UniqueItems:      schema.UniqueItems,
+		MinProperties:    schema.MinProperties,
+		MaxProperties:    schema.MaxProperties,
+		Required:         slices.Clone(schema.Required),
+	}
+
+	if isObjectSchema(schema) {
+		local.Properties = placeholderProperties(schema.Properties)
+		local.AdditionalProperties = schema.AdditionalProperties
+	}
+
+	return local
+}
+
+func placeholderProperties(properties map[string]*jsonschema.Schema) map[string]*jsonschema.Schema {
+	if len(properties) == 0 {
+		return nil
+	}
+
+	result := make(map[string]*jsonschema.Schema, len(properties))
+	for key := range properties {
+		result[key] = &jsonschema.Schema{}
+	}
+	return result
+}
+
+func resolveSchema(schema *jsonschema.Schema, root *jsonschema.Schema) *jsonschema.Schema {
 	if schema == nil {
 		return nil
 	}
 	if schema.Ref == "" {
 		return schema
 	}
-	const prefix = "#/$defs/"
-	if !strings.HasPrefix(schema.Ref, prefix) {
-		return schema
+
+	const defsPrefix = "#/$defs/"
+	if strings.HasPrefix(schema.Ref, defsPrefix) && root != nil {
+		name := strings.TrimPrefix(schema.Ref, defsPrefix)
+		if resolved, ok := root.Defs[name]; ok {
+			return resolved
+		}
 	}
-	name := strings.TrimPrefix(schema.Ref, prefix)
-	if root == nil || root.Defs == nil {
-		return schema
-	}
-	if resolved, ok := root.Defs[name]; ok {
-		return resolved
-	}
+
 	return schema
 }
 
-func matchesConst(value any, want any) bool {
-	gotInt, gotIsInt := asInt64(value)
-	wantInt, wantIsInt := asInt64(want)
-	if gotIsInt && wantIsInt {
-		return gotInt == wantInt
+func appendValidationError(errs *[]string, seen map[string]struct{}, err string) {
+	if _, ok := seen[err]; ok {
+		return
 	}
-	return value == want
+	seen[err] = struct{}{}
+	*errs = append(*errs, err)
 }
 
-func asInt64(value any) (int64, bool) {
-	switch v := value.(type) {
-	case json.Number:
-		i, err := v.Int64()
-		return i, err == nil
-	case float64:
-		i := int64(v)
-		if float64(i) != v {
-			return 0, false
-		}
-		return i, true
-	case int:
-		return int64(v), true
-	case int64:
-		return v, true
+func isObjectSchema(schema *jsonschema.Schema) bool {
+	return schema.Type == "object" || slices.Contains(schema.Types, "object")
+}
+
+func isArraySchema(schema *jsonschema.Schema) bool {
+	return schema.Type == "array" || slices.Contains(schema.Types, "array")
+}
+
+func mapsKeys[V any](m map[string]V) []string {
+	if len(m) == 0 {
+		return nil
 	}
-	return 0, false
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func normalizeJSONValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(v))
+		for key, child := range v {
+			result[key] = normalizeJSONValue(child)
+		}
+		return result
+	case []any:
+		result := make([]any, len(v))
+		for i, child := range v {
+			result[i] = normalizeJSONValue(child)
+		}
+		return result
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+		return v.String()
+	default:
+		return value
+	}
 }
 
 func joinJSONPath(base string, key string) string {

@@ -68,7 +68,7 @@ shelff-go/
 
 ### 2.3 Dependencies
 
-- **Required**: `github.com/santhosh-tekuri/jsonschema/v6` (or equivalent) for JSON Schema validation
+- **Required**: `github.com/google/jsonschema-go` for JSON Schema validation
 - **Required**: `github.com/mark3labs/mcp-go` (Go MCP SDK) for the MCP server — evaluate alternatives including `github.com/modelcontextprotocol/go-sdk` (official SDK, co-maintained with Google)
 - **Principle**: Minimize dependencies. Standard library `encoding/json`, `os`, `path/filepath`, `time` should cover most needs.
 
