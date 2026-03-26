@@ -129,7 +129,7 @@ func moveSidecarWithRollback(oldPDFPath string, newPDFPath string) error {
 	oldSidecarPath := SidecarPath(oldPDFPath)
 	newSidecarPath := SidecarPath(newPDFPath)
 
-	info, err := os.Stat(oldSidecarPath)
+	info, err := os.Lstat(oldSidecarPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

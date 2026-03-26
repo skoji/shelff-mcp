@@ -131,6 +131,39 @@ func TestMoveBookRollsBackWhenSidecarMoveFails(t *testing.T) {
 	assertPathMissing(t, filepath.Join(destDir, "book.pdf"))
 }
 
+func TestMoveBookMovesBrokenSymlinkSidecar(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	destDir := filepath.Join(root, "dest")
+	mkdirAll(t, sourceDir, destDir)
+
+	pdfPath := writeTestPDF(t, sourceDir, "book.pdf")
+	sidecarPath := shelff.SidecarPath(pdfPath)
+	if err := os.Symlink(filepath.Join(root, "missing-sidecar-target"), sidecarPath); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	newPDFPath, err := shelff.MoveBook(pdfPath, destDir)
+	if err != nil {
+		t.Fatalf("MoveBook returned error: %v", err)
+	}
+
+	newSidecarPath := shelff.SidecarPath(newPDFPath)
+	assertPathExists(t, newPDFPath)
+	assertPathExistsWithLstat(t, newSidecarPath)
+	assertPathMissing(t, sidecarPath)
+
+	target, err := os.Readlink(newSidecarPath)
+	if err != nil {
+		t.Fatalf("os.Readlink(%q): %v", newSidecarPath, err)
+	}
+	if target != filepath.Join(root, "missing-sidecar-target") {
+		t.Fatalf("symlink target = %q, want %q", target, filepath.Join(root, "missing-sidecar-target"))
+	}
+}
+
 func TestRenameBookRenamesPDFAndSidecar(t *testing.T) {
 	t.Parallel()
 
