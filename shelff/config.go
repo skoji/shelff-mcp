@@ -53,6 +53,9 @@ func (l *Library) ReadCategories() (*CategoryList, error) {
 // WriteCategories writes .shelff/categories.json.
 // Creates .shelff/ directory if it does not exist.
 // Normalizes order values to match array indices before writing.
+// It preserves unknown top-level fields present in cats.rawJSON (typically when
+// cats originated from ReadCategories), but does not otherwise read or merge
+// from any on-disk categories.json.
 func (l *Library) WriteCategories(cats *CategoryList) error {
 	normalized, err := normalizeCategoryList(cats)
 	if err != nil {
@@ -265,6 +268,9 @@ func (l *Library) ReadTagOrder() (*TagOrder, error) {
 
 // WriteTagOrder writes .shelff/tags.json.
 // Creates .shelff/ directory if it does not exist.
+// It preserves unknown top-level fields present in tags.rawJSON (typically when
+// tags originated from ReadTagOrder), but does not otherwise read or merge
+// from any on-disk tags.json.
 func (l *Library) WriteTagOrder(tags *TagOrder) error {
 	normalized, err := normalizeTagOrder(tags)
 	if err != nil {
@@ -506,19 +512,14 @@ func renameTag(tags []string, oldName string, newName string) ([]string, bool) {
 		return tags, false
 	}
 
-	updated := make([]string, 0, len(tags))
-	seen := make(map[string]struct{}, len(tags))
+	updated := make([]string, len(tags))
 	changed := false
-	for _, tag := range tags {
+	for i, tag := range tags {
 		if tag == oldName {
 			tag = newName
 			changed = true
 		}
-		if _, exists := seen[tag]; exists {
-			continue
-		}
-		seen[tag] = struct{}{}
-		updated = append(updated, tag)
+		updated[i] = tag
 	}
 	return updated, changed
 }

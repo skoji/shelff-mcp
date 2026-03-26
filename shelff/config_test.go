@@ -29,7 +29,32 @@ func TestReadCategoriesReturnsEmptyListWhenMissing(t *testing.T) {
 	}
 }
 
-func TestWriteCategoriesCreatesConfigDirNormalizesOrderAndPreservesUnknownFields(t *testing.T) {
+func TestWriteCategoriesCreatesConfigDir(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configDir := filepath.Join(root, shelff.ConfigDir)
+	categoriesPath := filepath.Join(configDir, shelff.CategoriesFile)
+	library := openTestLibrary(t, root)
+
+	if err := library.WriteCategories(&shelff.CategoryList{
+		Version: shelff.SchemaVersion,
+		Categories: []shelff.CategoryItem{
+			{Name: "Alpha", Order: 7},
+		},
+	}); err != nil {
+		t.Fatalf("WriteCategories returned error: %v", err)
+	}
+
+	if info, err := os.Stat(configDir); err != nil || !info.IsDir() {
+		t.Fatalf("config dir stat = (%v, %v), want existing directory", info, err)
+	}
+	if _, err := os.Stat(categoriesPath); err != nil {
+		t.Fatalf("categories path stat err = %v, want file", err)
+	}
+}
+
+func TestWriteCategoriesNormalizesOrderAndPreservesUnknownFields(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -227,7 +252,30 @@ func TestReadTagOrderReturnsEmptyListWhenMissing(t *testing.T) {
 	}
 }
 
-func TestWriteTagOrderCreatesConfigDirAndPreservesUnknownFields(t *testing.T) {
+func TestWriteTagOrderCreatesConfigDir(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configDir := filepath.Join(root, shelff.ConfigDir)
+	tagsPath := filepath.Join(configDir, shelff.TagsFile)
+	library := openTestLibrary(t, root)
+
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  shelff.SchemaVersion,
+		TagOrder: []string{"history"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder returned error: %v", err)
+	}
+
+	if info, err := os.Stat(configDir); err != nil || !info.IsDir() {
+		t.Fatalf("config dir stat = (%v, %v), want existing directory", info, err)
+	}
+	if _, err := os.Stat(tagsPath); err != nil {
+		t.Fatalf("tags path stat err = %v, want file", err)
+	}
+}
+
+func TestWriteTagOrderPreservesUnknownFields(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -329,7 +377,7 @@ func TestRemoveTagFromOrderMissingTagIsNoOp(t *testing.T) {
 	}
 }
 
-func TestRenameTagWithCascadeUpdatesSidecarsAndDeduplicates(t *testing.T) {
+func TestRenameTagWithCascadeUpdatesSidecarsWithoutDeduplicatingUnrelatedTags(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -358,8 +406,8 @@ func TestRenameTagWithCascadeUpdatesSidecarsAndDeduplicates(t *testing.T) {
 	}
 
 	meta := mustReadSidecar(t, pdfPath)
-	if len(meta.Tags) != 2 || meta.Tags[0] != "fantasy" || meta.Tags[1] != "history" {
-		t.Fatalf("Tags = %#v, want deduplicated [fantasy history]", meta.Tags)
+	if len(meta.Tags) != 3 || meta.Tags[0] != "fantasy" || meta.Tags[1] != "history" || meta.Tags[2] != "history" {
+		t.Fatalf("Tags = %#v, want [fantasy history history]", meta.Tags)
 	}
 }
 

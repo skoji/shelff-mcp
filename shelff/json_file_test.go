@@ -27,6 +27,15 @@ func TestWriteAllPropagatesWriterErrors(t *testing.T) {
 	}
 }
 
+func TestJSONBytesToMapRejectsTrailingJSON(t *testing.T) {
+	t.Parallel()
+
+	_, err := jsonBytesToMap([]byte(`{"a":1}{"b":2}`))
+	if err == nil {
+		t.Fatal("jsonBytesToMap error = nil, want trailing JSON error")
+	}
+}
+
 type shortWriter struct {
 	data        []byte
 	maxPerWrite int

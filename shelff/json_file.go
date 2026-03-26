@@ -24,6 +24,13 @@ func jsonBytesToMap(data []byte) (map[string]any, error) {
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("unexpected trailing JSON content")
+		}
+		return nil, err
+	}
 	if result == nil {
 		result = map[string]any{}
 	}
@@ -121,7 +128,7 @@ func writeAll(w io.Writer, data []byte) error {
 			return err
 		}
 		if n <= 0 {
-			return fmt.Errorf("short write")
+			return fmt.Errorf("short write: %w", io.ErrShortWrite)
 		}
 		data = data[n:]
 	}
