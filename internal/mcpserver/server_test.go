@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -309,8 +310,8 @@ func TestSidecarMutationTools(t *testing.T) {
 	if got := rawSidecar["x-custom"].(json.Number).String(); got != "9007199254740993" {
 		t.Fatalf("raw sidecar x-custom = %#v, want exact large integer", rawSidecar["x-custom"])
 	}
-	if got := rawSidecar["schemaVersion"].(json.Number).String(); got != "1" {
-		t.Fatalf("raw sidecar schemaVersion = %#v, want 1", rawSidecar["schemaVersion"])
+	if got := rawSidecar["schemaVersion"].(json.Number).String(); got != strconv.Itoa(shelff.SchemaVersion) {
+		t.Fatalf("raw sidecar schemaVersion = %#v, want %d", rawSidecar["schemaVersion"], shelff.SchemaVersion)
 	}
 
 	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{

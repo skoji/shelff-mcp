@@ -220,10 +220,14 @@ func (s *Server) writeSidecar(_ context.Context, _ *mcp.CallToolRequest, in writ
 	if err := shelff.WriteSidecar(pdfPath, next); err != nil {
 		return nil, readSidecarOutput{}, err
 	}
+	written, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		return nil, readSidecarOutput{}, err
+	}
 
 	return nil, readSidecarOutput{
 		Exists:  true,
-		Sidecar: next,
+		Sidecar: written,
 	}, nil
 }
 
