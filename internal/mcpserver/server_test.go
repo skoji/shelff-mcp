@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -271,15 +272,16 @@ func TestSidecarMutationTools(t *testing.T) {
 		t.Fatalf("write_sidecar first output = %#v", writeOut)
 	}
 
-	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{"schemaVersion":1,"metadata":{"dc:title":"book","dc:creator":["Ada"]},"tags":["go","mcp"],"x-custom":42}`)
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{"schemaVersion":1,"metadata":{"dc:title":"book","dc:creator":["Ada"]},"tags":["go","mcp"],"x-custom":9007199254740993}`)
 
 	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "write_sidecar",
 		Arguments: map[string]any{
 			"pdfPath": "book.pdf",
 			"sidecar": map[string]any{
+				"schemaVersion": nil,
 				"metadata": map[string]any{
-					"dc:title": "Updated Book",
+					"dc:title": nil,
 				},
 				"category": nil,
 			},
@@ -290,19 +292,25 @@ func TestSidecarMutationTools(t *testing.T) {
 	}
 	writeOut = readSidecarOutput{}
 	decodeStructuredContent(t, writeResult, &writeOut)
-	if writeOut.Sidecar == nil || writeOut.Sidecar.Metadata.Title != "Updated Book" {
+	if writeOut.Sidecar == nil || writeOut.Sidecar.Metadata.Title != "book" {
 		t.Fatalf("write_sidecar second output = %#v", writeOut)
 	}
 	if len(writeOut.Sidecar.Metadata.Creator) != 1 || writeOut.Sidecar.Metadata.Creator[0] != "Ada" {
 		t.Fatalf("write_sidecar creator = %#v, want preserved", writeOut.Sidecar.Metadata.Creator)
 	}
+	if writeOut.Sidecar.SchemaVersion != shelff.SchemaVersion {
+		t.Fatalf("write_sidecar schemaVersion = %d, want %d", writeOut.Sidecar.SchemaVersion, shelff.SchemaVersion)
+	}
 	if writeOut.Sidecar.Category != nil {
 		t.Fatalf("write_sidecar category = %#v, want nil", writeOut.Sidecar.Category)
 	}
 
-	rawSidecar := readJSONFile(t, shelff.SidecarPath(pdfPath))
-	if got := rawSidecar["x-custom"]; got != float64(42) {
-		t.Fatalf("raw sidecar x-custom = %#v, want 42", got)
+	rawSidecar := readJSONFileUseNumber(t, shelff.SidecarPath(pdfPath))
+	if got := rawSidecar["x-custom"].(json.Number).String(); got != "9007199254740993" {
+		t.Fatalf("raw sidecar x-custom = %#v, want exact large integer", rawSidecar["x-custom"])
+	}
+	if got := rawSidecar["schemaVersion"].(json.Number).String(); got != "1" {
+		t.Fatalf("raw sidecar schemaVersion = %#v, want 1", rawSidecar["schemaVersion"])
 	}
 
 	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -453,6 +461,22 @@ func readJSONFile(t *testing.T, path string) map[string]any {
 	var decoded map[string]any
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("Unmarshal(%q) error = %v", path, err)
+	}
+	return decoded
+}
+
+func readJSONFileUseNumber(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	var decoded map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		t.Fatalf("Decode(%q) error = %v", path, err)
 	}
 	return decoded
 }

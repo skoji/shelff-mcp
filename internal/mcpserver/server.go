@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -210,6 +211,7 @@ func (s *Server) writeSidecar(_ context.Context, _ *mcp.CallToolRequest, in writ
 		return nil, readSidecarOutput{}, err
 	}
 	merged := mergeJSONObject(currentMap, in.Sidecar)
+	merged = normalizeMergedSidecar(currentMap, merged)
 
 	next, err := mapToSidecar(merged)
 	if err != nil {
@@ -463,7 +465,9 @@ func sidecarToMap(pdfPath string, meta *shelff.SidecarMetadata) (map[string]any,
 	}
 
 	var decoded map[string]any
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
 		return nil, err
 	}
 	if decoded == nil {
@@ -500,6 +504,26 @@ func mergeJSONObject(current map[string]any, patch map[string]any) map[string]an
 		}
 		merged[key] = cloneJSONValue(patchValue)
 	}
+	return merged
+}
+
+func normalizeMergedSidecar(current map[string]any, merged map[string]any) map[string]any {
+	merged["schemaVersion"] = shelff.SchemaVersion
+
+	currentMetadata, _ := current["metadata"].(map[string]any)
+	mergedMetadata, ok := merged["metadata"].(map[string]any)
+	if !ok || mergedMetadata == nil {
+		mergedMetadata = cloneJSONObject(currentMetadata)
+	}
+	if currentMetadata != nil {
+		if title, ok := currentMetadata["dc:title"]; ok {
+			if _, present := mergedMetadata["dc:title"]; !present || mergedMetadata["dc:title"] == nil {
+				mergedMetadata["dc:title"] = title
+			}
+		}
+	}
+	merged["metadata"] = mergedMetadata
+
 	return merged
 }
 
