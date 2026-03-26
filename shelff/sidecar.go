@@ -74,6 +74,7 @@ func CreateSidecar(pdfPath string) (*SidecarMetadata, error) {
 // WriteSidecar writes the sidecar JSON for the given PDF.
 // It preserves unknown top-level fields from the existing sidecar JSON.
 // It does not verify that the PDF file itself currently exists.
+// Atomic replacement relies on the host platform's rename semantics.
 func WriteSidecar(pdfPath string, meta *SidecarMetadata) error {
 	if meta == nil {
 		return ErrNilSidecarMetadata

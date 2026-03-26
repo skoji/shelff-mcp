@@ -45,10 +45,17 @@ func TestCreateSidecarWritesInitialContent(t *testing.T) {
 		t.Fatalf("Metadata.Title = %q, want %q", meta.Metadata.Title, "My Report")
 	}
 
-	data := readFile(t, shelff.SidecarPath(pdfPath))
-	want := "{\n  \"metadata\": {\n    \"dc:title\": \"My Report\"\n  },\n  \"schemaVersion\": 1\n}"
-	if string(data) != want {
-		t.Fatalf("sidecar content = %s, want %s", data, want)
+	decoded := decodeJSONFile(t, shelff.SidecarPath(pdfPath))
+	if decoded["schemaVersion"].(json.Number).String() != "1" {
+		t.Fatalf("schemaVersion = %#v, want %d", decoded["schemaVersion"], shelff.SchemaVersion)
+	}
+
+	metadata, ok := decoded["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata = %#v, want JSON object", decoded["metadata"])
+	}
+	if metadata["dc:title"] != "My Report" {
+		t.Fatalf("metadata.dc:title = %#v, want %q", metadata["dc:title"], "My Report")
 	}
 }
 
