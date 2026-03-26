@@ -377,12 +377,12 @@ func TestRemoveTagFromOrderMissingTagIsNoOp(t *testing.T) {
 	}
 }
 
-func TestRenameTagWithCascadeUpdatesSidecarsWithoutDeduplicatingUnrelatedTags(t *testing.T) {
+func TestRenameTagWithCascadeUpdatesSidecars(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	library := openTestLibrary(t, root)
-	pdfPath := writeTagsSidecar(t, root, "book.pdf", []string{"sci-fi", "history", "history"})
+	pdfPath := writeTagsSidecar(t, root, "book.pdf", []string{"sci-fi", "mystery", "mystery"})
 	if err := library.WriteTagOrder(&shelff.TagOrder{
 		Version:  shelff.SchemaVersion,
 		TagOrder: []string{"sci-fi", "history"},
@@ -406,8 +406,8 @@ func TestRenameTagWithCascadeUpdatesSidecarsWithoutDeduplicatingUnrelatedTags(t 
 	}
 
 	meta := mustReadSidecar(t, pdfPath)
-	if len(meta.Tags) != 3 || meta.Tags[0] != "fantasy" || meta.Tags[1] != "history" || meta.Tags[2] != "history" {
-		t.Fatalf("Tags = %#v, want [fantasy history history]", meta.Tags)
+	if len(meta.Tags) != 3 || meta.Tags[0] != "fantasy" || meta.Tags[1] != "mystery" || meta.Tags[2] != "mystery" {
+		t.Fatalf("Tags = %#v, want [fantasy mystery mystery]", meta.Tags)
 	}
 }
 
@@ -439,6 +439,37 @@ func TestRenameTagMissingInOrderStillCascadesSidecars(t *testing.T) {
 	meta := mustReadSidecar(t, pdfPath)
 	if len(meta.Tags) != 2 || meta.Tags[0] != "fantasy" || meta.Tags[1] != "history" {
 		t.Fatalf("Tags = %#v, want [fantasy history]", meta.Tags)
+	}
+}
+
+func TestRenameTagCascadeDeduplicatesResultingTagCollision(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	pdfPath := writeTagsSidecar(t, root, "book.pdf", []string{"sci-fi", "history"})
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  shelff.SchemaVersion,
+		TagOrder: []string{"sci-fi"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder returned error: %v", err)
+	}
+
+	if err := library.RenameTag("sci-fi", "history", true); err != nil {
+		t.Fatalf("RenameTag returned error: %v", err)
+	}
+
+	tags, err := library.ReadTagOrder()
+	if err != nil {
+		t.Fatalf("ReadTagOrder returned error: %v", err)
+	}
+	if len(tags.TagOrder) != 1 || tags.TagOrder[0] != "history" {
+		t.Fatalf("TagOrder = %#v, want [history]", tags.TagOrder)
+	}
+
+	meta := mustReadSidecar(t, pdfPath)
+	if len(meta.Tags) != 1 || meta.Tags[0] != "history" {
+		t.Fatalf("Tags = %#v, want [history]", meta.Tags)
 	}
 }
 

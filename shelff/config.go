@@ -316,7 +316,8 @@ func (l *Library) AddTagToOrder(name string) error {
 // RemoveTagFromOrder removes a tag from the display order list.
 // If cascade is true, also removes the tag from all sidecars that reference it.
 // Note: without cascade, this only removes the display ordering entry.
-// If the tag is not present in tags.json, this is a no-op.
+// If the tag is not present in tags.json, no changes are made to the display
+// order list, but cascade=true still removes the tag from matching sidecars.
 // Cascade updates are applied sequentially; if a sidecar update fails, already-written
 // sidecars are not rolled back.
 func (l *Library) RemoveTagFromOrder(name string, cascade bool) error {
@@ -359,6 +360,8 @@ func (l *Library) RemoveTagFromOrder(name string, cascade bool) error {
 // RenameTag renames a tag in the display order list.
 // If cascade is true, updates the tag in all sidecars that reference the old name.
 // If the old tag is absent from tags.json, only the cascade sidecar update is attempted.
+// If the cascade rename would create duplicate occurrences of the new tag within
+// a sidecar, the resulting tags slice is de-duplicated while preserving order.
 // Cascade updates are applied sequentially; if a sidecar update fails, already-written
 // sidecars are not rolled back.
 func (l *Library) RenameTag(oldName string, newName string, cascade bool) error {
@@ -512,14 +515,21 @@ func renameTag(tags []string, oldName string, newName string) ([]string, bool) {
 		return tags, false
 	}
 
-	updated := make([]string, len(tags))
+	updated := make([]string, 0, len(tags))
 	changed := false
-	for i, tag := range tags {
+	seenNewName := false
+	for _, tag := range tags {
 		if tag == oldName {
 			tag = newName
 			changed = true
 		}
-		updated[i] = tag
+		if tag == newName {
+			if seenNewName {
+				continue
+			}
+			seenNewName = true
+		}
+		updated = append(updated, tag)
 	}
 	return updated, changed
 }
