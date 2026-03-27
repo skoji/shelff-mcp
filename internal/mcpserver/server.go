@@ -154,6 +154,10 @@ func (s *Server) Root() string {
 
 func (s *Server) registerTools() {
 	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "get_specification",
+		Description: "Return shelff specification and JSON schemas. Call this to learn about sidecar JSON structure, field meanings, and file conventions before using other tools.",
+	}, s.getSpecification)
+	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "read_sidecar",
 		Description: "Read sidecar metadata for a PDF path relative to the library root.",
 	}, s.readSidecar)
@@ -814,6 +818,7 @@ func toolNames() []string {
 	names := []string{
 		"add_category",
 		"add_tag_to_order",
+		"get_specification",
 		"read_sidecar",
 		"create_sidecar",
 		"write_sidecar",

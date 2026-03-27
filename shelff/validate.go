@@ -13,6 +13,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+//go:generate cp ../shelff-schema/sidecar.schema.json schema/sidecar.schema.json
+
 //go:embed schema/sidecar.schema.json
 var embeddedSidecarSchema []byte
 
