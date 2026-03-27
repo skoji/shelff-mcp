@@ -27,7 +27,9 @@ var specCategoriesSchema string
 //go:embed specs/tags.schema.json
 var specTagsSchema string
 
-var errUnknownTopic = fmt.Errorf("unknown topic: valid topics are overview, sidecar, categories, tags, all")
+func unknownTopicError(topic string) error {
+	return fmt.Errorf("unknown topic %q: valid topics are overview, sidecar, categories, tags, all", topic)
+}
 
 type getSpecificationInput struct {
 	Topic string `json:"topic,omitempty" jsonschema:"Topic to retrieve: overview (default), sidecar, categories, tags, or all."`
@@ -67,7 +69,6 @@ func specificationContent(topic string) (string, error) {
 		return specTagsSchema, nil
 	case "all":
 		var b strings.Builder
-		b.WriteString("# Overview\n\n")
 		b.WriteString(specOverview)
 		b.WriteString("\n\n# Sidecar Schema\n\n")
 		b.WriteString(specSidecarSchema)
@@ -77,6 +78,6 @@ func specificationContent(topic string) (string, error) {
 		b.WriteString(specTagsSchema)
 		return b.String(), nil
 	default:
-		return "", errUnknownTopic
+		return "", unknownTopicError(topic)
 	}
 }
