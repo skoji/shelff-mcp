@@ -208,6 +208,10 @@ func (s *Server) registerTools() {
 		Description: "Compute aggregate statistics for the library.",
 	}, s.libraryStats)
 	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "check_library",
+		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, and book counts.",
+	}, s.checkLibrary)
+	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "collect_all_tags",
 		Description: "Collect all tags in display order, then append uncategorized tags alphabetically.",
 	}, s.collectAllTags)
@@ -492,6 +496,14 @@ func (s *Server) libraryStats(_ context.Context, _ *mcp.CallToolRequest, _ struc
 		return nil, shelff.LibraryStats{}, err
 	}
 	return nil, *stats, nil
+}
+
+func (s *Server) checkLibrary(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, shelff.CheckLibraryResult, error) {
+	result, err := s.library.CheckLibrary()
+	if err != nil {
+		return nil, shelff.CheckLibraryResult{}, err
+	}
+	return nil, *result, nil
 }
 
 func (s *Server) collectAllTags(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, collectAllTagsOutput, error) {
@@ -834,6 +846,7 @@ func toolNames() []string {
 	names := []string{
 		"add_category",
 		"add_tag_to_order",
+		"check_library",
 		"get_specification",
 		"read_sidecar",
 		"create_sidecar",
