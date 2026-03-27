@@ -394,12 +394,24 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 	// Check .shelff directory and config files
 	var dotShelff DotShelffStatus
 	configInfo, err := os.Stat(l.configDirPath())
-	if err == nil && configInfo.IsDir() {
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	} else if configInfo.IsDir() {
 		dotShelff.Exists = true
-		if _, err := os.Stat(l.categoriesPath()); err == nil {
+		if _, err := os.Stat(l.categoriesPath()); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("checking categories config: %w", err)
+			}
+		} else {
 			dotShelff.CategoriesJSON = true
 		}
-		if _, err := os.Stat(l.tagsPath()); err == nil {
+		if _, err := os.Stat(l.tagsPath()); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("checking tags config: %w", err)
+			}
+		} else {
 			dotShelff.TagsJSON = true
 		}
 	}
@@ -427,7 +439,6 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 		if !book.HasSidecar {
 			continue
 		}
-		withSidecar++
 		meta, err := ReadSidecar(book.PDFPath)
 		if err != nil {
 			return nil, err
@@ -435,6 +446,7 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 		if meta == nil {
 			continue
 		}
+		withSidecar++
 		if meta.Category != nil {
 			usedCategories[*meta.Category] = struct{}{}
 		}
