@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://skoji.dev/shelff/schemas/tags/v1",
   "title": "shelff Tag Order",
-  "description": "Display ordering for tags. Stored at .shelff/tag-order.json in the shelff documents directory. Note: this file only defines the display order of tags. The canonical set of tags is derived by scanning all sidecar files; tags not listed here are appended in alphabetical order.",
+  "description": "Display ordering for tags. Stored at .shelff/tags.json in the shelff documents directory. Note: this file only defines the display order of tags. The canonical set of tags is derived by scanning all sidecar files; tags not listed here are appended in alphabetical order.",
   "type": "object",
   "required": ["version", "tagOrder"],
   "additionalProperties": true,
