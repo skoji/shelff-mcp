@@ -747,6 +747,75 @@ func TestReadCategoriesAndTagOrderExistsField(t *testing.T) {
 	}
 }
 
+func TestCheckLibraryTool(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library, err := shelff.OpenLibrary(root)
+	if err != nil {
+		t.Fatalf("OpenLibrary error = %v", err)
+	}
+
+	// Setup: categories + tags + books + orphan
+	if err := library.WriteCategories(&shelff.CategoryList{
+		Version:    1,
+		Categories: []shelff.CategoryItem{{Name: "小説", Order: 0}},
+	}); err != nil {
+		t.Fatalf("WriteCategories error = %v", err)
+	}
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  1,
+		TagOrder: []string{"Go"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder error = %v", err)
+	}
+
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta, err := shelff.CreateSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("CreateSidecar error = %v", err)
+	}
+	cat := "SF"
+	meta.Category = &cat
+	meta.Tags = []string{"Go", "Swift"}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar error = %v", err)
+	}
+
+	writeTestPDF(t, root, "nosidecar.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "check_library",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("check_library error = %v", err)
+	}
+
+	var out shelff.CheckLibraryResult
+	decodeStructuredContent(t, result, &out)
+
+	if !out.DotShelff.Exists || !out.DotShelff.CategoriesJSON || !out.DotShelff.TagsJSON {
+		t.Fatalf("dotShelff = %#v, want all true", out.DotShelff)
+	}
+	if !slices.Equal(out.Integrity.UndefinedCategories, []string{"SF"}) {
+		t.Fatalf("undefinedCategories = %v, want [SF]", out.Integrity.UndefinedCategories)
+	}
+	if !slices.Equal(out.Integrity.UndefinedTags, []string{"Swift"}) {
+		t.Fatalf("undefinedTags = %v, want [Swift]", out.Integrity.UndefinedTags)
+	}
+	if !slices.Equal(out.Integrity.UnusedCategories, []string{"小説"}) {
+		t.Fatalf("unusedCategories = %v, want [小説]", out.Integrity.UnusedCategories)
+	}
+	if out.Summary.TotalPDFs != 2 || out.Summary.WithSidecar != 1 || out.Summary.WithoutSidecar != 1 {
+		t.Fatalf("summary = %#v", out.Summary)
+	}
+}
+
 func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 	t.Parallel()
 
