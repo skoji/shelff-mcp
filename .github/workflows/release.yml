@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -o shelff-mcp-darwin-arm64 ./cmd/shelff-mcp
+          GOOS=darwin GOARCH=amd64 go build -o shelff-mcp-darwin-amd64 ./cmd/shelff-mcp
+          GOOS=linux GOARCH=amd64 go build -o shelff-mcp-linux-amd64 ./cmd/shelff-mcp
+          GOOS=linux GOARCH=arm64 go build -o shelff-mcp-linux-arm64 ./cmd/shelff-mcp
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            shelff-mcp-darwin-arm64
+            shelff-mcp-darwin-amd64
+            shelff-mcp-linux-amd64
+            shelff-mcp-linux-arm64
