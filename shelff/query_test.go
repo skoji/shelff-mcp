@@ -148,6 +148,32 @@ func TestScanBooksInDirectoryFollowsSymlinkStartDirectoryWithinRoot(t *testing.T
 	}
 }
 
+func TestScanBooksInDirectoryWithSymlinkRootNormalizesPathsAndSkipsConfigDir(t *testing.T) {
+	t.Parallel()
+
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "library-link")
+	selectedPDF := writeTestPDF(t, realRoot, "selected.pdf")
+	configDir := filepath.Join(realRoot, shelff.ConfigDir)
+	mkdirAll(t, configDir)
+	writeTestPDF(t, configDir, "ignored.pdf")
+
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	library := openTestLibrary(t, linkRoot)
+	books, err := library.ScanBooksInDirectory(".", true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	wantPDF := filepath.Join(linkRoot, filepath.Base(selectedPDF))
+	if len(books) != 1 || books[0].PDFPath != wantPDF {
+		t.Fatalf("books = %#v, want only %q under symlink root", books, wantPDF)
+	}
+}
+
 func TestScanBooksInDirectoryNonRecursiveOnlyReturnsDirectChildren(t *testing.T) {
 	t.Parallel()
 

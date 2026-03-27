@@ -337,12 +337,24 @@ func (l *Library) resolveScanDirectory(dirPath string) (string, error) {
 }
 
 func (l *Library) isWithinConfigDir(path string) bool {
-	rel, err := filepath.Rel(l.root, path)
+	rel, err := l.relativeToLibraryRoot(path)
 	if err != nil {
 		return false
 	}
 	rel = filepath.Clean(rel)
 	return rel == ConfigDir || strings.HasPrefix(rel, ConfigDir+string(filepath.Separator))
+}
+
+func (l *Library) relativeToLibraryRoot(path string) (string, error) {
+	resolvedRoot, err := filepath.EvalSymlinks(l.root)
+	if err != nil {
+		return "", err
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Rel(resolvedRoot, resolvedPath)
 }
 
 func isPDFPath(path string) bool {
