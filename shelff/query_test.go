@@ -95,6 +95,34 @@ func TestScanBooksInDirectoryRecursiveOnlyReturnsRequestedSubtree(t *testing.T) 
 	}
 }
 
+func TestScanBooksInDirectoryAcceptsLibraryRootRelativePaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	deepDir := filepath.Join(selectedDir, "deep")
+	mkdirAll(t, selectedDir, deepDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	deepPDF := writeTestPDF(t, deepDir, "deep.pdf")
+
+	books, err := library.ScanBooksInDirectory("selected", true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 2 {
+		t.Fatalf("len(books) = %d, want 2", len(books))
+	}
+	if got := findBook(t, books, selectedPDF); got.PDFPath != selectedPDF {
+		t.Fatalf("selected book = %#v, want %q", got, selectedPDF)
+	}
+	if got := findBook(t, books, deepPDF); got.PDFPath != deepPDF {
+		t.Fatalf("deep book = %#v, want %q", got, deepPDF)
+	}
+}
+
 func TestScanBooksInDirectoryNonRecursiveOnlyReturnsDirectChildren(t *testing.T) {
 	t.Parallel()
 

@@ -270,7 +270,13 @@ func (l *Library) resolveScanDirectory(dirPath string) (string, error) {
 		return "", fmt.Errorf("scan directory is empty")
 	}
 
-	absDir, err := filepath.Abs(dirPath)
+	cleanDir := filepath.Clean(filepath.FromSlash(dirPath))
+	baseDir := cleanDir
+	if !filepath.IsAbs(baseDir) {
+		baseDir = filepath.Join(l.root, baseDir)
+	}
+
+	absDir, err := filepath.Abs(baseDir)
 	if err != nil {
 		return "", err
 	}
