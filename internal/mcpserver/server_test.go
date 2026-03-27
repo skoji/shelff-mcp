@@ -654,6 +654,99 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	}
 }
 
+func TestReadCategoriesAndTagOrderExistsField(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library, err := shelff.OpenLibrary(root)
+	if err != nil {
+		t.Fatalf("OpenLibrary error = %v", err)
+	}
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	// File missing: exists should be false
+	catResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_categories",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_categories (missing) error = %v", err)
+	}
+	var catOut readCategoriesOutput
+	decodeStructuredContent(t, catResult, &catOut)
+	if catOut.Exists {
+		t.Fatalf("read_categories (missing) exists = true, want false")
+	}
+	if catOut.Categories != nil {
+		t.Fatalf("read_categories (missing) categories = %#v, want nil", catOut.Categories)
+	}
+
+	tagResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_tag_order",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_tag_order (missing) error = %v", err)
+	}
+	var tagOut readTagOrderOutput
+	decodeStructuredContent(t, tagResult, &tagOut)
+	if tagOut.Exists {
+		t.Fatalf("read_tag_order (missing) exists = true, want false")
+	}
+	if tagOut.TagOrder != nil {
+		t.Fatalf("read_tag_order (missing) tagOrder = %#v, want nil", tagOut.TagOrder)
+	}
+
+	// Create files, then exists should be true
+	if err := library.WriteCategories(&shelff.CategoryList{
+		Version:    1,
+		Categories: []shelff.CategoryItem{{Name: "小説", Order: 0}},
+	}); err != nil {
+		t.Fatalf("WriteCategories error = %v", err)
+	}
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  1,
+		TagOrder: []string{"Go"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder error = %v", err)
+	}
+
+	catResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_categories",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_categories (exists) error = %v", err)
+	}
+	catOut = readCategoriesOutput{}
+	decodeStructuredContent(t, catResult, &catOut)
+	if !catOut.Exists {
+		t.Fatalf("read_categories (exists) exists = false, want true")
+	}
+	if catOut.Categories == nil || len(catOut.Categories.Categories) != 1 {
+		t.Fatalf("read_categories (exists) categories = %#v", catOut.Categories)
+	}
+
+	tagResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_tag_order",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_tag_order (exists) error = %v", err)
+	}
+	tagOut = readTagOrderOutput{}
+	decodeStructuredContent(t, tagResult, &tagOut)
+	if !tagOut.Exists {
+		t.Fatalf("read_tag_order (exists) exists = false, want true")
+	}
+	if tagOut.TagOrder == nil || !slices.Equal(tagOut.TagOrder.TagOrder, []string{"Go"}) {
+		t.Fatalf("read_tag_order (exists) tagOrder = %#v", tagOut.TagOrder)
+	}
+}
+
 func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 	t.Parallel()
 
