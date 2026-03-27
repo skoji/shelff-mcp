@@ -10,10 +10,10 @@ import (
 )
 
 //go:generate mkdir -p specs
-//go:generate cp ../../../shelff-schema/SPECIFICATION.md specs/SPECIFICATION.md
-//go:generate cp ../../../shelff-schema/sidecar.schema.json specs/sidecar.schema.json
-//go:generate cp ../../../shelff-schema/categories.schema.json specs/categories.schema.json
-//go:generate cp ../../../shelff-schema/tags.schema.json specs/tags.schema.json
+//go:generate cp ../../shelff-schema/SPECIFICATION.md specs/SPECIFICATION.md
+//go:generate cp ../../shelff-schema/sidecar.schema.json specs/sidecar.schema.json
+//go:generate cp ../../shelff-schema/categories.schema.json specs/categories.schema.json
+//go:generate cp ../../shelff-schema/tags.schema.json specs/tags.schema.json
 
 //go:embed specs/SPECIFICATION.md
 var specOverview string
