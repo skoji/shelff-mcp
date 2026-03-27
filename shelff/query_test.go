@@ -2,6 +2,7 @@ package shelff_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -60,6 +61,161 @@ func TestScanBooksNonRecursiveOnlyReturnsTopLevelPDFs(t *testing.T) {
 	}
 	if len(books) != 1 || books[0].PDFPath != topPDF {
 		t.Fatalf("books = %#v, want only top-level PDF", books)
+	}
+}
+
+func TestScanBooksInDirectoryRecursiveOnlyReturnsRequestedSubtree(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	otherDir := filepath.Join(root, "other")
+	deepDir := filepath.Join(selectedDir, "deep")
+	configDir := filepath.Join(root, shelff.ConfigDir)
+	mkdirAll(t, selectedDir, otherDir, deepDir, configDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	deepPDF := writeTestPDF(t, deepDir, "deep.pdf")
+	writeTestPDF(t, otherDir, "other.pdf")
+	writeTestPDF(t, configDir, "ignored.pdf")
+
+	books, err := library.ScanBooksInDirectory(selectedDir, true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 2 {
+		t.Fatalf("len(books) = %d, want 2", len(books))
+	}
+	if got := findBook(t, books, selectedPDF); got.PDFPath != selectedPDF {
+		t.Fatalf("selected book = %#v, want %q", got, selectedPDF)
+	}
+	if got := findBook(t, books, deepPDF); got.PDFPath != deepPDF {
+		t.Fatalf("deep book = %#v, want %q", got, deepPDF)
+	}
+}
+
+func TestScanBooksInDirectoryAcceptsLibraryRootRelativePaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	deepDir := filepath.Join(selectedDir, "deep")
+	mkdirAll(t, selectedDir, deepDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	deepPDF := writeTestPDF(t, deepDir, "deep.pdf")
+
+	books, err := library.ScanBooksInDirectory("selected", true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 2 {
+		t.Fatalf("len(books) = %d, want 2", len(books))
+	}
+	if got := findBook(t, books, selectedPDF); got.PDFPath != selectedPDF {
+		t.Fatalf("selected book = %#v, want %q", got, selectedPDF)
+	}
+	if got := findBook(t, books, deepPDF); got.PDFPath != deepPDF {
+		t.Fatalf("deep book = %#v, want %q", got, deepPDF)
+	}
+}
+
+func TestScanBooksInDirectoryFollowsSymlinkStartDirectoryWithinRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	linkDir := filepath.Join(root, "selected-link")
+	mkdirAll(t, selectedDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	if err := os.Symlink(selectedDir, linkDir); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	books, err := library.ScanBooksInDirectory(linkDir, true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 1 || books[0].PDFPath != selectedPDF {
+		t.Fatalf("books = %#v, want selected.pdf through symlink start directory", books)
+	}
+}
+
+func TestScanBooksInDirectoryWithSymlinkRootNormalizesPathsAndSkipsConfigDir(t *testing.T) {
+	t.Parallel()
+
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "library-link")
+	selectedPDF := writeTestPDF(t, realRoot, "selected.pdf")
+	configDir := filepath.Join(realRoot, shelff.ConfigDir)
+	mkdirAll(t, configDir)
+	writeTestPDF(t, configDir, "ignored.pdf")
+	orphanSidecar := shelff.SidecarPath(filepath.Join(realRoot, "orphan.pdf"))
+	writeRawJSONFile(t, orphanSidecar, `{"schemaVersion":1,"metadata":{"dc:title":"orphan"}}`)
+
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	library := openTestLibrary(t, linkRoot)
+	books, err := library.ScanBooks(true)
+	if err != nil {
+		t.Fatalf("ScanBooks returned error: %v", err)
+	}
+
+	wantPDF := filepath.Join(linkRoot, filepath.Base(selectedPDF))
+	if len(books) != 1 || books[0].PDFPath != wantPDF {
+		t.Fatalf("books = %#v, want only %q under symlink root", books, wantPDF)
+	}
+
+	orphaned, err := library.FindOrphanedSidecars()
+	if err != nil {
+		t.Fatalf("FindOrphanedSidecars returned error: %v", err)
+	}
+	wantSidecar := filepath.Join(linkRoot, filepath.Base(orphanSidecar))
+	wantExpectedPDF := filepath.Join(linkRoot, "orphan.pdf")
+	if len(orphaned) != 1 || orphaned[0].SidecarPath != wantSidecar || orphaned[0].ExpectedPDF != wantExpectedPDF {
+		t.Fatalf("orphaned = %#v, want sidecar=%q expectedPDF=%q", orphaned, wantSidecar, wantExpectedPDF)
+	}
+}
+
+func TestScanBooksInDirectoryNonRecursiveOnlyReturnsDirectChildren(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	deepDir := filepath.Join(selectedDir, "deep")
+	mkdirAll(t, selectedDir, deepDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	writeTestPDF(t, deepDir, "deep.pdf")
+
+	books, err := library.ScanBooksInDirectory(selectedDir, false)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 1 || books[0].PDFPath != selectedPDF {
+		t.Fatalf("books = %#v, want only direct child PDF", books)
+	}
+}
+
+func TestScanBooksInDirectoryRejectsOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	if _, err := library.ScanBooksInDirectory(t.TempDir(), true); err == nil {
+		t.Fatal("ScanBooksInDirectory error = nil, want outside-root error")
 	}
 }
 

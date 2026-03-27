@@ -129,6 +129,7 @@ Use these APIs:
 Once a library is open, you can inspect it with:
 
 - `ScanBooks(recursive bool)`
+- `ScanBooksInDirectory(directoryPath string, recursive bool)`
 - `FindOrphanedSidecars()`
 - `Stats()`
 - `CollectAllTags()`
@@ -206,6 +207,22 @@ Mutation tools:
 - `reorder_tags`
 
 `DeleteBook` is intentionally not exposed via MCP, to reduce the risk of destructive PDF deletion from agent workflows.
+
+### `scan_books` pagination and directory filtering
+
+`scan_books` supports optional pagination and subtree filtering:
+
+- `directory`: library-root-relative directory to scan from
+- `limit`: maximum number of books to return, default `100`
+- `offset`: number of filtered books to skip, default `0`
+
+Filtering is applied first, then pagination. The response includes:
+
+- `books`: the current page of results
+- `total`: total number of books matching the filter before pagination
+- `offset`: the applied offset
+- `limit`: the applied limit
+- `hasMore`: whether more matching books remain after this page
 
 ### `write_sidecar` semantics
 

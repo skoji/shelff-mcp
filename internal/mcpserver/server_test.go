@@ -136,6 +136,9 @@ func TestReadOnlyToolsReturnStructuredData(t *testing.T) {
 	if len(scanOut.Books) != 2 {
 		t.Fatalf("scan_books count = %d, want 2", len(scanOut.Books))
 	}
+	if scanOut.Total != 2 || scanOut.Offset != 0 || scanOut.Limit != defaultScanBooksLimit || scanOut.HasMore {
+		t.Fatalf("scan_books page info = %#v, want total=2 offset=0 limit=%d hasMore=false", scanOut, defaultScanBooksLimit)
+	}
 	if scanOut.Books[0].PDFPath != "book.pdf" || !scanOut.Books[0].HasSidecar {
 		t.Fatalf("first scan_books entry = %#v", scanOut.Books[0])
 	}
@@ -667,10 +670,72 @@ func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 
 	assertToolTraversalError(t, session, "read_sidecar", map[string]any{"pdfPath": "../outside.pdf"})
 	assertToolTraversalError(t, session, "read_sidecar", map[string]any{"pdfPath": "escape/outside.pdf"})
+	assertToolTraversalError(t, session, "scan_books", map[string]any{"recursive": true, "directory": "../outside"})
+	assertToolTraversalError(t, session, "scan_books", map[string]any{"recursive": true, "directory": "escape"})
 	assertToolTraversalError(t, session, "rename_book", map[string]any{"pdfPath": "../outside.pdf", "newName": "renamed"})
 	assertToolTraversalError(t, session, "rename_book", map[string]any{"pdfPath": "escape/outside.pdf", "newName": "renamed"})
 	assertToolTraversalError(t, session, "move_book", map[string]any{"pdfPath": "inside.pdf", "destDir": "../outside"})
 	assertToolTraversalError(t, session, "move_book", map[string]any{"pdfPath": "inside.pdf", "destDir": "escape"})
+}
+
+func TestScanBooksSupportsDirectoryFilteringAndPagination(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	nestedDir := filepath.Join(root, "nested")
+	deepDir := filepath.Join(nestedDir, "deep")
+	otherDir := filepath.Join(root, "other")
+	for _, dir := range []string{nestedDir, deepDir, otherDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+
+	writeTestPDF(t, root, "top.pdf")
+	writeTestPDF(t, nestedDir, "a.pdf")
+	writeTestPDF(t, nestedDir, "b.pdf")
+	writeTestPDF(t, deepDir, "c.pdf")
+	writeTestPDF(t, otherDir, "outside.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "scan_books",
+		Arguments: map[string]any{
+			"recursive": true,
+			"directory": "nested",
+			"offset":    1,
+			"limit":     1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("scan_books with directory/pagination error = %v", err)
+	}
+
+	var out scanBooksOutput
+	decodeStructuredContent(t, result, &out)
+	if out.Total != 3 || out.Offset != 1 || out.Limit != 1 || !out.HasMore {
+		t.Fatalf("scan_books page info = %#v, want total=3 offset=1 limit=1 hasMore=true", out)
+	}
+	if len(out.Books) != 1 || out.Books[0].PDFPath != "nested/b.pdf" {
+		t.Fatalf("scan_books books = %#v, want nested/b.pdf only", out.Books)
+	}
+}
+
+func TestScanBooksRejectsInvalidPagination(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestPDF(t, root, "book.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	assertToolErrorContains(t, session, "scan_books", map[string]any{"recursive": true, "limit": 0}, ErrInvalidLimit.Error())
+	assertToolErrorContains(t, session, "scan_books", map[string]any{"recursive": true, "offset": -1}, ErrInvalidOffset.Error())
 }
 
 func TestNewRejectsMissingRoot(t *testing.T) {
@@ -742,6 +807,28 @@ func assertToolTraversalError(t *testing.T, session *mcp.ClientSession, name str
 	text, ok := result.Content[0].(*mcp.TextContent)
 	if !ok || !strings.Contains(text.Text, ErrPathTraversal.Error()) {
 		t.Fatalf("CallTool(%q) content = %#v, want traversal error", name, result.Content[0])
+	}
+}
+
+func assertToolErrorContains(t *testing.T, session *mcp.ClientSession, name string, arguments map[string]any, want string) {
+	t.Helper()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      name,
+		Arguments: arguments,
+	})
+	if err != nil {
+		t.Fatalf("CallTool(%q) error = %v", name, err)
+	}
+	if !result.IsError {
+		t.Fatalf("CallTool(%q) IsError = false, want true", name)
+	}
+	if len(result.Content) == 0 {
+		t.Fatalf("CallTool(%q) returned no error content", name)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(text.Text, want) {
+		t.Fatalf("CallTool(%q) content = %#v, want %q", name, result.Content[0], want)
 	}
 }
 
