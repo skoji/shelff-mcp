@@ -114,6 +114,10 @@ Use these APIs for sidecar lifecycle:
 
 ### Categories and tags
 
+`ReadCategories` returns `(*CategoryList, nil)` when `.shelff/categories.json` exists, and `(nil, nil)` when it does not.
+
+`ReadTagOrder` returns `(*TagOrder, nil)` when `.shelff/tags.json` exists, and `(nil, nil)` when it does not.
+
 Categories and tags are managed differently:
 
 - categories are defined in `.shelff/categories.json`
@@ -133,6 +137,7 @@ Once a library is open, you can inspect it with:
 - `FindOrphanedSidecars()`
 - `Stats()`
 - `CollectAllTags()`
+- `CheckLibrary()`
 - `Validate(pdfPath)`
 
 ## MCP server
@@ -189,6 +194,7 @@ Read-only tools:
 - `collect_all_tags`
 - `read_categories`
 - `read_tag_order`
+- `check_library`
 
 Mutation tools:
 
@@ -207,6 +213,19 @@ Mutation tools:
 - `reorder_tags`
 
 `DeleteBook` is intentionally not exposed via MCP, to reduce the risk of destructive PDF deletion from agent workflows.
+
+### `exists` field in read tools
+
+`read_sidecar`, `read_categories`, and `read_tag_order` include an `exists` boolean in the response. When the underlying file is missing, `exists` is `false` and the data fields are omitted.
+
+### `check_library` diagnostics
+
+`check_library` runs diagnostic checks on the library and reports:
+
+- `.shelff/` directory and config file presence
+- category/tag integrity (undefined and unused categories/tags)
+- orphaned sidecars (sidecars with no corresponding PDF)
+- basic book counts (total, with sidecar, without sidecar)
 
 ### `scan_books` pagination and directory filtering
 
@@ -378,6 +397,7 @@ Category/tag cascade operations update sidecars sequentially. If one sidecar wri
 - `(*Library).Validate(pdfPath string) ([]string, error)`
 - `(*Library).Stats() (*LibraryStats, error)`
 - `(*Library).CollectAllTags() ([]string, error)`
+- `(*Library).CheckLibrary() (*CheckLibraryResult, error)`
 
 ## Exported data types
 
@@ -393,6 +413,10 @@ The main exported structs are:
 - `BookEntry`
 - `OrphanedSidecar`
 - `LibraryStats`
+- `CheckLibraryResult`
+- `DotShelffStatus`
+- `IntegrityReport`
+- `LibrarySummary`
 
 Useful exported constants include:
 

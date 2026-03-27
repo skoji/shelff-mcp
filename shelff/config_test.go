@@ -11,7 +11,7 @@ import (
 	"github.com/skoji/shelff-go/shelff"
 )
 
-func TestReadCategoriesReturnsEmptyListWhenMissing(t *testing.T) {
+func TestReadCategoriesReturnsNilWhenMissing(t *testing.T) {
 	t.Parallel()
 
 	library := openTestLibrary(t, t.TempDir())
@@ -21,11 +21,36 @@ func TestReadCategoriesReturnsEmptyListWhenMissing(t *testing.T) {
 		t.Fatalf("ReadCategories returned error: %v", err)
 	}
 
-	if cats.Version != shelff.SchemaVersion {
-		t.Fatalf("Version = %d, want %d", cats.Version, shelff.SchemaVersion)
+	if cats != nil {
+		t.Fatalf("ReadCategories = %#v, want nil when file missing", cats)
 	}
-	if len(cats.Categories) != 0 {
-		t.Fatalf("len(Categories) = %d, want 0", len(cats.Categories))
+}
+
+func TestReadCategoriesReturnsDataWhenFileExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	configDir := filepath.Join(root, shelff.ConfigDir)
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writeRawJSONFile(t, filepath.Join(configDir, shelff.CategoriesFile),
+		`{"version":1,"categories":[{"name":"小説","order":0}]}`)
+
+	cats, err := library.ReadCategories()
+	if err != nil {
+		t.Fatalf("ReadCategories returned error: %v", err)
+	}
+	if cats == nil {
+		t.Fatal("ReadCategories returned nil, want non-nil when file exists")
+	}
+	if len(cats.Categories) != 1 {
+		t.Fatalf("len(Categories) = %d, want 1", len(cats.Categories))
+	}
+	if cats.Categories[0].Name != "小説" {
+		t.Fatalf("Categories[0].Name = %q, want %q", cats.Categories[0].Name, "小説")
 	}
 }
 
@@ -234,7 +259,7 @@ func TestReorderCategoriesNormalizesOrderAndValidatesSet(t *testing.T) {
 	}
 }
 
-func TestReadTagOrderReturnsEmptyListWhenMissing(t *testing.T) {
+func TestReadTagOrderReturnsNilWhenMissing(t *testing.T) {
 	t.Parallel()
 
 	library := openTestLibrary(t, t.TempDir())
@@ -244,11 +269,36 @@ func TestReadTagOrderReturnsEmptyListWhenMissing(t *testing.T) {
 		t.Fatalf("ReadTagOrder returned error: %v", err)
 	}
 
-	if tags.Version != shelff.SchemaVersion {
-		t.Fatalf("Version = %d, want %d", tags.Version, shelff.SchemaVersion)
+	if tags != nil {
+		t.Fatalf("ReadTagOrder = %#v, want nil when file missing", tags)
 	}
-	if len(tags.TagOrder) != 0 {
-		t.Fatalf("len(TagOrder) = %d, want 0", len(tags.TagOrder))
+}
+
+func TestReadTagOrderReturnsDataWhenFileExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	configDir := filepath.Join(root, shelff.ConfigDir)
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writeRawJSONFile(t, filepath.Join(configDir, shelff.TagsFile),
+		`{"version":1,"tagOrder":["Go","Rust"]}`)
+
+	tags, err := library.ReadTagOrder()
+	if err != nil {
+		t.Fatalf("ReadTagOrder returned error: %v", err)
+	}
+	if tags == nil {
+		t.Fatal("ReadTagOrder returned nil, want non-nil when file exists")
+	}
+	if len(tags.TagOrder) != 2 {
+		t.Fatalf("len(TagOrder) = %d, want 2", len(tags.TagOrder))
+	}
+	if tags.TagOrder[0] != "Go" || tags.TagOrder[1] != "Rust" {
+		t.Fatalf("TagOrder = %v, want [Go Rust]", tags.TagOrder)
 	}
 }
 

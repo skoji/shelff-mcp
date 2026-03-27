@@ -384,6 +384,200 @@ func findBook(t *testing.T, books []shelff.BookEntry, pdfPath string) shelff.Boo
 	return shelff.BookEntry{}
 }
 
+func TestCheckLibraryWithNoDotShelff(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	writeTestPDF(t, root, "a.pdf")
+	writeTestPDF(t, root, "b.pdf")
+
+	result, err := library.CheckLibrary()
+	if err != nil {
+		t.Fatalf("CheckLibrary returned error: %v", err)
+	}
+
+	if result.DotShelff.Exists {
+		t.Fatalf("DotShelff.Exists = true, want false")
+	}
+	if result.DotShelff.CategoriesJSON {
+		t.Fatalf("DotShelff.CategoriesJSON = true, want false")
+	}
+	if result.DotShelff.TagsJSON {
+		t.Fatalf("DotShelff.TagsJSON = true, want false")
+	}
+	if len(result.Integrity.UndefinedCategories) != 0 {
+		t.Fatalf("UndefinedCategories = %v, want empty", result.Integrity.UndefinedCategories)
+	}
+	if len(result.Integrity.UndefinedTags) != 0 {
+		t.Fatalf("UndefinedTags = %v, want empty", result.Integrity.UndefinedTags)
+	}
+	if len(result.Integrity.UnusedCategories) != 0 {
+		t.Fatalf("UnusedCategories = %v, want empty", result.Integrity.UnusedCategories)
+	}
+	if len(result.Integrity.UnusedTags) != 0 {
+		t.Fatalf("UnusedTags = %v, want empty", result.Integrity.UnusedTags)
+	}
+	if len(result.OrphanedSidecars) != 0 {
+		t.Fatalf("OrphanedSidecars = %v, want empty", result.OrphanedSidecars)
+	}
+	if result.Summary.TotalPDFs != 2 {
+		t.Fatalf("TotalPDFs = %d, want 2", result.Summary.TotalPDFs)
+	}
+	if result.Summary.WithSidecar != 0 {
+		t.Fatalf("WithSidecar = %d, want 0", result.Summary.WithSidecar)
+	}
+	if result.Summary.WithoutSidecar != 2 {
+		t.Fatalf("WithoutSidecar = %d, want 2", result.Summary.WithoutSidecar)
+	}
+}
+
+func TestCheckLibraryWithConfigAndBooks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	// Create categories: 小説, 技術書 (技術書 will be unused)
+	if err := library.WriteCategories(&shelff.CategoryList{
+		Version: 1,
+		Categories: []shelff.CategoryItem{
+			{Name: "小説", Order: 0},
+			{Name: "技術書", Order: 1},
+		},
+	}); err != nil {
+		t.Fatalf("WriteCategories: %v", err)
+	}
+
+	// Create tags: Go, Rust (Rust will be unused)
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  1,
+		TagOrder: []string{"Go", "Rust"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder: %v", err)
+	}
+
+	// book with sidecar: category=小説, tags=[Go, Swift]
+	// Swift is undefined (not in tags.json)
+	pdfPath := writeTestPDF(t, root, "book1.pdf")
+	meta, err := shelff.CreateSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("CreateSidecar: %v", err)
+	}
+	cat := "小説"
+	meta.Category = &cat
+	meta.Tags = []string{"Go", "Swift"}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar: %v", err)
+	}
+
+	// book with sidecar: category=SF (undefined)
+	pdfPath2 := writeTestPDF(t, root, "book2.pdf")
+	meta2, err := shelff.CreateSidecar(pdfPath2)
+	if err != nil {
+		t.Fatalf("CreateSidecar: %v", err)
+	}
+	cat2 := "SF"
+	meta2.Category = &cat2
+	if err := shelff.WriteSidecar(pdfPath2, meta2); err != nil {
+		t.Fatalf("WriteSidecar: %v", err)
+	}
+
+	// book without sidecar
+	writeTestPDF(t, root, "book3.pdf")
+
+	// orphaned sidecar
+	orphanPath := filepath.Join(root, "gone.pdf.meta.json")
+	writeRawJSONFile(t, orphanPath, `{"schemaVersion":1,"metadata":{"dc:title":"gone"}}`)
+
+	result, err := library.CheckLibrary()
+	if err != nil {
+		t.Fatalf("CheckLibrary returned error: %v", err)
+	}
+
+	if !result.DotShelff.Exists {
+		t.Fatalf("DotShelff.Exists = false, want true")
+	}
+	if !result.DotShelff.CategoriesJSON {
+		t.Fatalf("DotShelff.CategoriesJSON = false, want true")
+	}
+	if !result.DotShelff.TagsJSON {
+		t.Fatalf("DotShelff.TagsJSON = false, want true")
+	}
+
+	// undefinedCategories: SF (used in sidecar but not in categories.json)
+	if !slices.Equal(result.Integrity.UndefinedCategories, []string{"SF"}) {
+		t.Fatalf("UndefinedCategories = %v, want [SF]", result.Integrity.UndefinedCategories)
+	}
+	// undefinedTags: Swift (used in sidecar but not in tags.json)
+	if !slices.Equal(result.Integrity.UndefinedTags, []string{"Swift"}) {
+		t.Fatalf("UndefinedTags = %v, want [Swift]", result.Integrity.UndefinedTags)
+	}
+	// unusedCategories: 技術書 (defined but not used in any sidecar)
+	if !slices.Equal(result.Integrity.UnusedCategories, []string{"技術書"}) {
+		t.Fatalf("UnusedCategories = %v, want [技術書]", result.Integrity.UnusedCategories)
+	}
+	// unusedTags: Rust (defined but not used in any sidecar)
+	if !slices.Equal(result.Integrity.UnusedTags, []string{"Rust"}) {
+		t.Fatalf("UnusedTags = %v, want [Rust]", result.Integrity.UnusedTags)
+	}
+
+	if !slices.Equal(result.OrphanedSidecars, []string{"gone.pdf.meta.json"}) {
+		t.Fatalf("OrphanedSidecars = %v, want [gone.pdf.meta.json]", result.OrphanedSidecars)
+	}
+
+	if result.Summary.TotalPDFs != 3 {
+		t.Fatalf("TotalPDFs = %d, want 3", result.Summary.TotalPDFs)
+	}
+	if result.Summary.WithSidecar != 2 {
+		t.Fatalf("WithSidecar = %d, want 2", result.Summary.WithSidecar)
+	}
+	if result.Summary.WithoutSidecar != 1 {
+		t.Fatalf("WithoutSidecar = %d, want 1", result.Summary.WithoutSidecar)
+	}
+}
+
+func TestCheckLibraryIntegrityWithMissingConfigFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	// Sidecar with category and tags but no config files
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta, err := shelff.CreateSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("CreateSidecar: %v", err)
+	}
+	cat := "技術雑誌"
+	meta.Category = &cat
+	meta.Tags = []string{"Go", "Swift"}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar: %v", err)
+	}
+
+	result, err := library.CheckLibrary()
+	if err != nil {
+		t.Fatalf("CheckLibrary returned error: %v", err)
+	}
+
+	// No config files → all used categories/tags are undefined
+	if !slices.Equal(result.Integrity.UndefinedCategories, []string{"技術雑誌"}) {
+		t.Fatalf("UndefinedCategories = %v, want [技術雑誌]", result.Integrity.UndefinedCategories)
+	}
+	if !slices.Equal(result.Integrity.UndefinedTags, []string{"Go", "Swift"}) {
+		t.Fatalf("UndefinedTags = %v, want [Go Swift]", result.Integrity.UndefinedTags)
+	}
+	// No config files → no unused
+	if len(result.Integrity.UnusedCategories) != 0 {
+		t.Fatalf("UnusedCategories = %v, want empty", result.Integrity.UnusedCategories)
+	}
+	if len(result.Integrity.UnusedTags) != 0 {
+		t.Fatalf("UnusedTags = %v, want empty", result.Integrity.UnusedTags)
+	}
+}
+
 func mustParseTime(t *testing.T, value string) time.Time {
 	t.Helper()
 

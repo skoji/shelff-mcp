@@ -22,15 +22,12 @@ var (
 )
 
 // ReadCategories reads .shelff/categories.json.
-// Returns an empty CategoryList if the file does not exist.
+// Returns (nil, nil) if the file does not exist.
 func (l *Library) ReadCategories() (*CategoryList, error) {
 	data, err := os.ReadFile(l.categoriesPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &CategoryList{
-				Version:    SchemaVersion,
-				Categories: []CategoryItem{},
-			}, nil
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -48,6 +45,23 @@ func (l *Library) ReadCategories() (*CategoryList, error) {
 		cats.Version = SchemaVersion
 	}
 	return &cats, nil
+}
+
+// readOrInitCategories reads .shelff/categories.json, returning an empty
+// CategoryList if the file does not exist. Used by mutation methods that
+// need a non-nil starting point.
+func (l *Library) readOrInitCategories() (*CategoryList, error) {
+	cats, err := l.ReadCategories()
+	if err != nil {
+		return nil, err
+	}
+	if cats == nil {
+		return &CategoryList{
+			Version:    SchemaVersion,
+			Categories: []CategoryItem{},
+		}, nil
+	}
+	return cats, nil
 }
 
 // WriteCategories writes .shelff/categories.json.
@@ -84,7 +98,7 @@ func (l *Library) AddCategory(name string) error {
 		return err
 	}
 
-	cats, err := l.ReadCategories()
+	cats, err := l.readOrInitCategories()
 	if err != nil {
 		return err
 	}
@@ -109,7 +123,7 @@ func (l *Library) RemoveCategory(name string, cascade bool) error {
 		return err
 	}
 
-	cats, err := l.ReadCategories()
+	cats, err := l.readOrInitCategories()
 	if err != nil {
 		return err
 	}
@@ -155,7 +169,7 @@ func (l *Library) RenameCategory(oldName string, newName string, cascade bool) e
 		return err
 	}
 
-	cats, err := l.ReadCategories()
+	cats, err := l.readOrInitCategories()
 	if err != nil {
 		return err
 	}
@@ -196,7 +210,7 @@ func (l *Library) RenameCategory(oldName string, newName string, cascade bool) e
 // names must contain exactly the same set of category names (no additions or removals).
 // Returns ErrCategoryMismatch if the names don't match.
 func (l *Library) ReorderCategories(names []string) error {
-	cats, err := l.ReadCategories()
+	cats, err := l.readOrInitCategories()
 	if err != nil {
 		return err
 	}
@@ -238,15 +252,12 @@ func (l *Library) ReorderCategories(names []string) error {
 }
 
 // ReadTagOrder reads .shelff/tags.json.
-// Returns an empty TagOrder if the file does not exist.
+// Returns (nil, nil) if the file does not exist.
 func (l *Library) ReadTagOrder() (*TagOrder, error) {
 	data, err := os.ReadFile(l.tagsPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &TagOrder{
-				Version:  SchemaVersion,
-				TagOrder: []string{},
-			}, nil
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -264,6 +275,23 @@ func (l *Library) ReadTagOrder() (*TagOrder, error) {
 		tags.Version = SchemaVersion
 	}
 	return &tags, nil
+}
+
+// readOrInitTagOrder reads .shelff/tags.json, returning an empty
+// TagOrder if the file does not exist. Used by mutation methods that
+// need a non-nil starting point.
+func (l *Library) readOrInitTagOrder() (*TagOrder, error) {
+	tags, err := l.ReadTagOrder()
+	if err != nil {
+		return nil, err
+	}
+	if tags == nil {
+		return &TagOrder{
+			Version:  SchemaVersion,
+			TagOrder: []string{},
+		}, nil
+	}
+	return tags, nil
 }
 
 // WriteTagOrder writes .shelff/tags.json.
@@ -299,7 +327,7 @@ func (l *Library) AddTagToOrder(name string) error {
 		return err
 	}
 
-	tags, err := l.ReadTagOrder()
+	tags, err := l.readOrInitTagOrder()
 	if err != nil {
 		return err
 	}
@@ -326,7 +354,7 @@ func (l *Library) RemoveTagFromOrder(name string, cascade bool) error {
 		return err
 	}
 
-	tags, err := l.ReadTagOrder()
+	tags, err := l.readOrInitTagOrder()
 	if err != nil {
 		return err
 	}
@@ -374,7 +402,7 @@ func (l *Library) RenameTag(oldName string, newName string, cascade bool) error 
 		return err
 	}
 
-	tags, err := l.ReadTagOrder()
+	tags, err := l.readOrInitTagOrder()
 	if err != nil {
 		return err
 	}
@@ -407,7 +435,7 @@ func (l *Library) RenameTag(oldName string, newName string, cascade bool) error 
 // Unlike ReorderCategories, names do not need to match the existing set because
 // tags.json only controls display order, not the canonical set of tags.
 func (l *Library) ReorderTags(names []string) error {
-	tags, err := l.ReadTagOrder()
+	tags, err := l.readOrInitTagOrder()
 	if err != nil {
 		return err
 	}

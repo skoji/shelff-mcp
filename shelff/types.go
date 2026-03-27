@@ -86,6 +86,36 @@ type LibraryStats struct {
 	StatusCounts     map[string]int
 }
 
+// CheckLibraryResult holds the result of a library diagnostic check.
+type CheckLibraryResult struct {
+	DotShelff        DotShelffStatus `json:"dotShelff"`
+	Integrity        IntegrityReport `json:"integrity"`
+	OrphanedSidecars []string        `json:"orphanedSidecars"`
+	Summary          LibrarySummary  `json:"summary"`
+}
+
+// DotShelffStatus reports existence of the .shelff directory and config files.
+type DotShelffStatus struct {
+	Exists         bool `json:"exists"`
+	CategoriesJSON bool `json:"categoriesJson"`
+	TagsJSON       bool `json:"tagsJson"`
+}
+
+// IntegrityReport reports category/tag integrity issues.
+type IntegrityReport struct {
+	UndefinedCategories []string `json:"undefinedCategories"`
+	UndefinedTags       []string `json:"undefinedTags"`
+	UnusedCategories    []string `json:"unusedCategories"`
+	UnusedTags          []string `json:"unusedTags"`
+}
+
+// LibrarySummary holds basic book counts.
+type LibrarySummary struct {
+	TotalPDFs      int `json:"totalPDFs"`
+	WithSidecar    int `json:"withSidecar"`
+	WithoutSidecar int `json:"withoutSidecar"`
+}
+
 const (
 	SidecarSuffix  = ".meta.json"
 	ConfigDir      = ".shelff"

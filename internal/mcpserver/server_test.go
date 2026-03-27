@@ -205,9 +205,9 @@ func TestReadOnlyToolsReturnStructuredData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read_categories error = %v", err)
 	}
-	var categoriesOut shelff.CategoryList
+	var categoriesOut readCategoriesOutput
 	decodeStructuredContent(t, categoriesResult, &categoriesOut)
-	if categoriesOut.Version != 1 || len(categoriesOut.Categories) != 2 {
+	if !categoriesOut.Exists || categoriesOut.Categories == nil || categoriesOut.Categories.Version != 1 || len(categoriesOut.Categories.Categories) != 2 {
 		t.Fatalf("read_categories = %#v", categoriesOut)
 	}
 
@@ -218,9 +218,9 @@ func TestReadOnlyToolsReturnStructuredData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read_tag_order error = %v", err)
 	}
-	var tagOrderOut shelff.TagOrder
+	var tagOrderOut readTagOrderOutput
 	decodeStructuredContent(t, tagOrderResult, &tagOrderOut)
-	if tagOrderOut.Version != 1 || !slices.Equal(tagOrderOut.TagOrder, []string{"reading", "golang"}) {
+	if !tagOrderOut.Exists || tagOrderOut.TagOrder == nil || tagOrderOut.TagOrder.Version != 1 || !slices.Equal(tagOrderOut.TagOrder.TagOrder, []string{"reading", "golang"}) {
 		t.Fatalf("read_tag_order = %#v", tagOrderOut)
 	}
 }
@@ -490,9 +490,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add_category error = %v", err)
 	}
-	var categoriesOut shelff.CategoryList
+	var categoriesOut readCategoriesOutput
 	decodeStructuredContent(t, addCategoryResult, &categoriesOut)
-	if len(categoriesOut.Categories) != 1 || categoriesOut.Categories[0].Name != "Reference" {
+	if !categoriesOut.Exists || categoriesOut.Categories == nil || len(categoriesOut.Categories.Categories) != 1 || categoriesOut.Categories.Categories[0].Name != "Reference" {
 		t.Fatalf("add_category output = %#v", categoriesOut)
 	}
 
@@ -507,9 +507,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rename_category error = %v", err)
 	}
-	categoriesOut = shelff.CategoryList{}
+	categoriesOut = readCategoriesOutput{}
 	decodeStructuredContent(t, renameCategoryResult, &categoriesOut)
-	if len(categoriesOut.Categories) != 1 || categoriesOut.Categories[0].Name != "Docs" {
+	if !categoriesOut.Exists || categoriesOut.Categories == nil || len(categoriesOut.Categories.Categories) != 1 || categoriesOut.Categories.Categories[0].Name != "Docs" {
 		t.Fatalf("rename_category output = %#v", categoriesOut)
 	}
 	renamedSidecar, err := shelff.ReadSidecar(renamedPDFPath)
@@ -528,7 +528,7 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 		t.Fatalf("second add_category error = %v", err)
 	}
 	decodeStructuredContent(t, addCategoryResult, &categoriesOut)
-	if len(categoriesOut.Categories) != 2 {
+	if !categoriesOut.Exists || categoriesOut.Categories == nil || len(categoriesOut.Categories.Categories) != 2 {
 		t.Fatalf("second add_category output = %#v", categoriesOut)
 	}
 
@@ -539,9 +539,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reorder_categories error = %v", err)
 	}
-	categoriesOut = shelff.CategoryList{}
+	categoriesOut = readCategoriesOutput{}
 	decodeStructuredContent(t, reorderCategoriesResult, &categoriesOut)
-	if len(categoriesOut.Categories) != 2 || categoriesOut.Categories[0].Name != "Archive" || categoriesOut.Categories[1].Name != "Docs" {
+	if !categoriesOut.Exists || categoriesOut.Categories == nil || len(categoriesOut.Categories.Categories) != 2 || categoriesOut.Categories.Categories[0].Name != "Archive" || categoriesOut.Categories.Categories[1].Name != "Docs" {
 		t.Fatalf("reorder_categories output = %#v", categoriesOut)
 	}
 
@@ -555,9 +555,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remove_category error = %v", err)
 	}
-	categoriesOut = shelff.CategoryList{}
+	categoriesOut = readCategoriesOutput{}
 	decodeStructuredContent(t, removeCategoryResult, &categoriesOut)
-	if len(categoriesOut.Categories) != 1 || categoriesOut.Categories[0].Name != "Archive" {
+	if !categoriesOut.Exists || categoriesOut.Categories == nil || len(categoriesOut.Categories.Categories) != 1 || categoriesOut.Categories.Categories[0].Name != "Archive" {
 		t.Fatalf("remove_category output = %#v", categoriesOut)
 	}
 	renamedSidecar, err = shelff.ReadSidecar(renamedPDFPath)
@@ -575,9 +575,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add_tag_to_order error = %v", err)
 	}
-	var tagOrderOut shelff.TagOrder
+	var tagOrderOut readTagOrderOutput
 	decodeStructuredContent(t, addTagResult, &tagOrderOut)
-	if !slices.Equal(tagOrderOut.TagOrder, []string{"go"}) {
+	if !tagOrderOut.Exists || tagOrderOut.TagOrder == nil || !slices.Equal(tagOrderOut.TagOrder.TagOrder, []string{"go"}) {
 		t.Fatalf("add_tag_to_order output = %#v", tagOrderOut)
 	}
 
@@ -589,7 +589,7 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 		t.Fatalf("second add_tag_to_order error = %v", err)
 	}
 	decodeStructuredContent(t, addTagResult, &tagOrderOut)
-	if !slices.Equal(tagOrderOut.TagOrder, []string{"go", "mcp"}) {
+	if !tagOrderOut.Exists || tagOrderOut.TagOrder == nil || !slices.Equal(tagOrderOut.TagOrder.TagOrder, []string{"go", "mcp"}) {
 		t.Fatalf("second add_tag_to_order output = %#v", tagOrderOut)
 	}
 
@@ -604,9 +604,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rename_tag error = %v", err)
 	}
-	tagOrderOut = shelff.TagOrder{}
+	tagOrderOut = readTagOrderOutput{}
 	decodeStructuredContent(t, renameTagResult, &tagOrderOut)
-	if !slices.Equal(tagOrderOut.TagOrder, []string{"golang", "mcp"}) {
+	if !tagOrderOut.Exists || tagOrderOut.TagOrder == nil || !slices.Equal(tagOrderOut.TagOrder.TagOrder, []string{"golang", "mcp"}) {
 		t.Fatalf("rename_tag output = %#v", tagOrderOut)
 	}
 	renamedSidecar, err = shelff.ReadSidecar(renamedPDFPath)
@@ -624,9 +624,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reorder_tags error = %v", err)
 	}
-	tagOrderOut = shelff.TagOrder{}
+	tagOrderOut = readTagOrderOutput{}
 	decodeStructuredContent(t, reorderTagsResult, &tagOrderOut)
-	if !slices.Equal(tagOrderOut.TagOrder, []string{"mcp", "golang", "extra"}) {
+	if !tagOrderOut.Exists || tagOrderOut.TagOrder == nil || !slices.Equal(tagOrderOut.TagOrder.TagOrder, []string{"mcp", "golang", "extra"}) {
 		t.Fatalf("reorder_tags output = %#v", tagOrderOut)
 	}
 
@@ -640,9 +640,9 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remove_tag_from_order error = %v", err)
 	}
-	tagOrderOut = shelff.TagOrder{}
+	tagOrderOut = readTagOrderOutput{}
 	decodeStructuredContent(t, removeTagResult, &tagOrderOut)
-	if !slices.Equal(tagOrderOut.TagOrder, []string{"golang", "extra"}) {
+	if !tagOrderOut.Exists || tagOrderOut.TagOrder == nil || !slices.Equal(tagOrderOut.TagOrder.TagOrder, []string{"golang", "extra"}) {
 		t.Fatalf("remove_tag_from_order output = %#v", tagOrderOut)
 	}
 	renamedSidecar, err = shelff.ReadSidecar(renamedPDFPath)
@@ -651,6 +651,168 @@ func TestBookAndConfigMutationTools(t *testing.T) {
 	}
 	if renamedSidecar == nil || !slices.Equal(renamedSidecar.Tags, []string{"golang"}) {
 		t.Fatalf("sidecar tags after remove_tag_from_order = %#v", renamedSidecar)
+	}
+}
+
+func TestReadCategoriesAndTagOrderExistsField(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library, err := shelff.OpenLibrary(root)
+	if err != nil {
+		t.Fatalf("OpenLibrary error = %v", err)
+	}
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	// File missing: exists should be false
+	catResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_categories",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_categories (missing) error = %v", err)
+	}
+	var catOut readCategoriesOutput
+	decodeStructuredContent(t, catResult, &catOut)
+	if catOut.Exists {
+		t.Fatalf("read_categories (missing) exists = true, want false")
+	}
+	if catOut.Categories != nil {
+		t.Fatalf("read_categories (missing) categories = %#v, want nil", catOut.Categories)
+	}
+
+	tagResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_tag_order",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_tag_order (missing) error = %v", err)
+	}
+	var tagOut readTagOrderOutput
+	decodeStructuredContent(t, tagResult, &tagOut)
+	if tagOut.Exists {
+		t.Fatalf("read_tag_order (missing) exists = true, want false")
+	}
+	if tagOut.TagOrder != nil {
+		t.Fatalf("read_tag_order (missing) tagOrder = %#v, want nil", tagOut.TagOrder)
+	}
+
+	// Create files, then exists should be true
+	if err := library.WriteCategories(&shelff.CategoryList{
+		Version:    1,
+		Categories: []shelff.CategoryItem{{Name: "小説", Order: 0}},
+	}); err != nil {
+		t.Fatalf("WriteCategories error = %v", err)
+	}
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  1,
+		TagOrder: []string{"Go"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder error = %v", err)
+	}
+
+	catResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_categories",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_categories (exists) error = %v", err)
+	}
+	catOut = readCategoriesOutput{}
+	decodeStructuredContent(t, catResult, &catOut)
+	if !catOut.Exists {
+		t.Fatalf("read_categories (exists) exists = false, want true")
+	}
+	if catOut.Categories == nil || len(catOut.Categories.Categories) != 1 {
+		t.Fatalf("read_categories (exists) categories = %#v", catOut.Categories)
+	}
+
+	tagResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_tag_order",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("read_tag_order (exists) error = %v", err)
+	}
+	tagOut = readTagOrderOutput{}
+	decodeStructuredContent(t, tagResult, &tagOut)
+	if !tagOut.Exists {
+		t.Fatalf("read_tag_order (exists) exists = false, want true")
+	}
+	if tagOut.TagOrder == nil || !slices.Equal(tagOut.TagOrder.TagOrder, []string{"Go"}) {
+		t.Fatalf("read_tag_order (exists) tagOrder = %#v", tagOut.TagOrder)
+	}
+}
+
+func TestCheckLibraryTool(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library, err := shelff.OpenLibrary(root)
+	if err != nil {
+		t.Fatalf("OpenLibrary error = %v", err)
+	}
+
+	// Setup: categories + tags + books + orphan
+	if err := library.WriteCategories(&shelff.CategoryList{
+		Version:    1,
+		Categories: []shelff.CategoryItem{{Name: "小説", Order: 0}},
+	}); err != nil {
+		t.Fatalf("WriteCategories error = %v", err)
+	}
+	if err := library.WriteTagOrder(&shelff.TagOrder{
+		Version:  1,
+		TagOrder: []string{"Go"},
+	}); err != nil {
+		t.Fatalf("WriteTagOrder error = %v", err)
+	}
+
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta, err := shelff.CreateSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("CreateSidecar error = %v", err)
+	}
+	cat := "SF"
+	meta.Category = &cat
+	meta.Tags = []string{"Go", "Swift"}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar error = %v", err)
+	}
+
+	writeTestPDF(t, root, "nosidecar.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "check_library",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("check_library error = %v", err)
+	}
+
+	var out shelff.CheckLibraryResult
+	decodeStructuredContent(t, result, &out)
+
+	if !out.DotShelff.Exists || !out.DotShelff.CategoriesJSON || !out.DotShelff.TagsJSON {
+		t.Fatalf("dotShelff = %#v, want all true", out.DotShelff)
+	}
+	if !slices.Equal(out.Integrity.UndefinedCategories, []string{"SF"}) {
+		t.Fatalf("undefinedCategories = %v, want [SF]", out.Integrity.UndefinedCategories)
+	}
+	if !slices.Equal(out.Integrity.UndefinedTags, []string{"Swift"}) {
+		t.Fatalf("undefinedTags = %v, want [Swift]", out.Integrity.UndefinedTags)
+	}
+	if !slices.Equal(out.Integrity.UnusedCategories, []string{"小説"}) {
+		t.Fatalf("unusedCategories = %v, want [小説]", out.Integrity.UnusedCategories)
+	}
+	if out.Summary.TotalPDFs != 2 || out.Summary.WithSidecar != 1 || out.Summary.WithoutSidecar != 1 {
+		t.Fatalf("summary = %#v", out.Summary)
 	}
 }
 
