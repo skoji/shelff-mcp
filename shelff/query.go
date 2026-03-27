@@ -34,8 +34,13 @@ func (l *Library) scanBooksFrom(startDir string, recursive bool) ([]BookEntry, e
 		return []BookEntry{}, nil
 	}
 
+	resolvedRoot, err := filepath.EvalSymlinks(l.root)
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]BookEntry, 0)
-	err := l.walkLibraryFilesFrom(startDir, recursive, func(path string, d fs.DirEntry) error {
+	err = l.walkLibraryFilesFrom(startDir, recursive, func(path string, d fs.DirEntry) error {
 		if !isPDFPath(path) {
 			return nil
 		}
@@ -47,12 +52,12 @@ func (l *Library) scanBooksFrom(startDir string, recursive bool) ([]BookEntry, e
 
 		var sidecarPath *string
 		if hasSidecar {
-			value := SidecarPath(path)
+			value := l.normalizeLibraryPath(SidecarPath(path), resolvedRoot)
 			sidecarPath = &value
 		}
 
 		entries = append(entries, BookEntry{
-			PDFPath:     path,
+			PDFPath:     l.normalizeLibraryPath(path, resolvedRoot),
 			SidecarPath: sidecarPath,
 			HasSidecar:  hasSidecar,
 		})
@@ -66,6 +71,21 @@ func (l *Library) scanBooksFrom(startDir string, recursive bool) ([]BookEntry, e
 		return strings.Compare(a.PDFPath, b.PDFPath)
 	})
 	return entries, nil
+}
+
+func (l *Library) normalizeLibraryPath(path string, resolvedRoot string) string {
+	if resolvedRoot == "" || resolvedRoot == l.root {
+		return path
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, path)
+	if err != nil {
+		return path
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return filepath.Join(l.root, rel)
 }
 
 // FindOrphanedSidecars finds sidecar JSON files that have no corresponding PDF.
@@ -304,6 +324,14 @@ func (l *Library) resolveScanDirectory(dirPath string) (string, error) {
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("scan directory %q is outside library root %q", absDir, l.root)
+	}
+
+	startInfo, err := os.Lstat(absDir)
+	if err != nil {
+		return "", err
+	}
+	if startInfo.Mode()&os.ModeSymlink != 0 {
+		return resolvedDir, nil
 	}
 	return absDir, nil
 }

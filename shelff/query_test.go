@@ -2,6 +2,7 @@ package shelff_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -120,6 +121,30 @@ func TestScanBooksInDirectoryAcceptsLibraryRootRelativePaths(t *testing.T) {
 	}
 	if got := findBook(t, books, deepPDF); got.PDFPath != deepPDF {
 		t.Fatalf("deep book = %#v, want %q", got, deepPDF)
+	}
+}
+
+func TestScanBooksInDirectoryFollowsSymlinkStartDirectoryWithinRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	selectedDir := filepath.Join(root, "selected")
+	linkDir := filepath.Join(root, "selected-link")
+	mkdirAll(t, selectedDir)
+
+	selectedPDF := writeTestPDF(t, selectedDir, "selected.pdf")
+	if err := os.Symlink(selectedDir, linkDir); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	books, err := library.ScanBooksInDirectory(linkDir, true)
+	if err != nil {
+		t.Fatalf("ScanBooksInDirectory returned error: %v", err)
+	}
+
+	if len(books) != 1 || books[0].PDFPath != selectedPDF {
+		t.Fatalf("books = %#v, want selected.pdf through symlink start directory", books)
 	}
 }
 
