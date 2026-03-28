@@ -132,6 +132,23 @@ type collectAllTagsOutput struct {
 	Tags []string `json:"tags"`
 }
 
+type listDirectoriesInput struct {
+	Recursive bool    `json:"recursive" jsonschema:"Whether to list subdirectories recursively."`
+	Directory *string `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
+}
+
+type listDirectoriesOutput struct {
+	Directories []string `json:"directories"`
+}
+
+type createDirectoryInput struct {
+	Path string `json:"path" jsonschema:"Directory path relative to the library root. Parent directories are created automatically."`
+}
+
+type createDirectoryOutput struct {
+	Path string `json:"path"`
+}
+
 func New(root string) (*Server, error) {
 	library, err := openCanonicalLibrary(root)
 	if err != nil {
@@ -215,6 +232,14 @@ func (s *Server) registerTools() {
 		Name:        "collect_all_tags",
 		Description: "Collect all tags in display order, then append uncategorized tags alphabetically.",
 	}, s.collectAllTags)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "list_directories",
+		Description: "List directories in the library, optionally filtered to a subdirectory.",
+	}, s.listDirectories)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "create_directory",
+		Description: "Create a directory (and parent directories) within the library.",
+	}, s.createDirectory)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "read_categories",
 		Description: "Read the category configuration file.",
@@ -451,6 +476,113 @@ func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBoo
 		out.Books = append(out.Books, item)
 	}
 	return nil, out, nil
+}
+
+func (s *Server) listDirectories(_ context.Context, _ *mcp.CallToolRequest, in listDirectoriesInput) (*mcp.CallToolResult, listDirectoriesOutput, error) {
+	startDir := s.library.Root()
+	if in.Directory != nil {
+		dir := strings.TrimSpace(*in.Directory)
+		if dir != "" {
+			resolved, err := s.resolveDirectoryPath(dir)
+			if err != nil {
+				return nil, listDirectoriesOutput{}, err
+			}
+			resolved, err = resolveExistingPath(resolved)
+			if err != nil {
+				return nil, listDirectoriesOutput{}, err
+			}
+			if err := s.ensureWithinRoot(resolved); err != nil {
+				return nil, listDirectoriesOutput{}, err
+			}
+			startDir = resolved
+		}
+	}
+
+	configDir := filepath.Clean(filepath.Join(s.library.Root(), shelff.ConfigDir))
+	cleanStart := filepath.Clean(startDir)
+	if cleanStart == configDir || strings.HasPrefix(cleanStart, configDir+string(filepath.Separator)) {
+		return nil, listDirectoriesOutput{Directories: []string{}}, nil
+	}
+
+	var dirs []string
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		return nil, listDirectoriesOutput{}, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if entry.Name() == shelff.ConfigDir {
+			continue
+		}
+		rel, err := s.relativePath(filepath.Join(startDir, entry.Name()))
+		if err != nil {
+			return nil, listDirectoriesOutput{}, err
+		}
+		dirs = append(dirs, rel)
+		if in.Recursive {
+			sub, err := s.listSubdirectories(filepath.Join(startDir, entry.Name()))
+			if err != nil {
+				return nil, listDirectoriesOutput{}, err
+			}
+			dirs = append(dirs, sub...)
+		}
+	}
+	if dirs == nil {
+		dirs = []string{}
+	}
+	return nil, listDirectoriesOutput{Directories: dirs}, nil
+}
+
+func (s *Server) listSubdirectories(dir string) ([]string, error) {
+	var dirs []string
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if entry.Name() == shelff.ConfigDir {
+			continue
+		}
+		full := filepath.Join(dir, entry.Name())
+		rel, err := s.relativePath(full)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, rel)
+		sub, err := s.listSubdirectories(full)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, sub...)
+	}
+	return dirs, nil
+}
+
+func (s *Server) createDirectory(_ context.Context, _ *mcp.CallToolRequest, in createDirectoryInput) (*mcp.CallToolResult, createDirectoryOutput, error) {
+	resolved, err := s.resolvePath(in.Path)
+	if err != nil {
+		return nil, createDirectoryOutput{}, err
+	}
+	resolved, err = resolveExistingPath(resolved)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, createDirectoryOutput{}, err
+	}
+	if err := s.ensureWithinRoot(resolved); err != nil {
+		return nil, createDirectoryOutput{}, err
+	}
+	if err := os.MkdirAll(resolved, 0o755); err != nil {
+		return nil, createDirectoryOutput{}, err
+	}
+	rel, err := s.relativePath(resolved)
+	if err != nil {
+		return nil, createDirectoryOutput{}, err
+	}
+	return nil, createDirectoryOutput{Path: rel}, nil
 }
 
 func (s *Server) findOrphanedSidecars(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, orphanedSidecarsOutput, error) {
@@ -847,6 +979,7 @@ func toolNames() []string {
 		"add_category",
 		"add_tag_to_order",
 		"check_library",
+		"create_directory",
 		"get_specification",
 		"read_sidecar",
 		"create_sidecar",
@@ -857,6 +990,7 @@ func toolNames() []string {
 		"scan_books",
 		"find_orphaned_sidecars",
 		"validate_sidecar",
+		"list_directories",
 		"library_stats",
 		"collect_all_tags",
 		"read_categories",

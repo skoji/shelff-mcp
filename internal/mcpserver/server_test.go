@@ -900,6 +900,193 @@ func TestScanBooksRejectsInvalidPagination(t *testing.T) {
 	assertToolErrorContains(t, session, "scan_books", map[string]any{"recursive": true, "offset": -1}, ErrInvalidOffset.Error())
 }
 
+func TestListDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	// Create directory structure:
+	//   root/
+	//     a/
+	//       nested/
+	//     b/
+	//     .shelff/   (config dir, should be excluded)
+	for _, dir := range []string{"a", "a/nested", "b", ".shelff"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("MkdirAll error = %v", err)
+		}
+	}
+	// Also place a file to ensure files are not listed
+	writeTestPDF(t, root, "book.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	// Non-recursive: only top-level directories
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_directories",
+		Arguments: map[string]any{"recursive": false},
+	})
+	if err != nil {
+		t.Fatalf("list_directories error = %v", err)
+	}
+	var out listDirectoriesOutput
+	decodeStructuredContent(t, result, &out)
+	slices.Sort(out.Directories)
+	if want := []string{"a", "b"}; !slices.Equal(out.Directories, want) {
+		t.Fatalf("list_directories non-recursive = %v, want %v", out.Directories, want)
+	}
+
+	// Recursive: all directories including nested
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_directories",
+		Arguments: map[string]any{"recursive": true},
+	})
+	if err != nil {
+		t.Fatalf("list_directories recursive error = %v", err)
+	}
+	out = listDirectoriesOutput{}
+	decodeStructuredContent(t, result, &out)
+	slices.Sort(out.Directories)
+	if want := []string{"a", "a/nested", "b"}; !slices.Equal(out.Directories, want) {
+		t.Fatalf("list_directories recursive = %v, want %v", out.Directories, want)
+	}
+
+	// directory: "" should behave like listing from the root
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_directories",
+		Arguments: map[string]any{"recursive": false, "directory": ""},
+	})
+	if err != nil {
+		t.Fatalf("list_directories with empty directory error = %v", err)
+	}
+	out = listDirectoriesOutput{}
+	decodeStructuredContent(t, result, &out)
+	slices.Sort(out.Directories)
+	if want := []string{"a", "b"}; !slices.Equal(out.Directories, want) {
+		t.Fatalf("list_directories with empty directory = %v, want %v", out.Directories, want)
+	}
+
+	// directory: "a" should return only entries under "a"
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_directories",
+		Arguments: map[string]any{"recursive": true, "directory": "a"},
+	})
+	if err != nil {
+		t.Fatalf("list_directories with directory=a error = %v", err)
+	}
+	out = listDirectoriesOutput{}
+	decodeStructuredContent(t, result, &out)
+	if want := []string{"a/nested"}; !slices.Equal(out.Directories, want) {
+		t.Fatalf("list_directories with directory=a = %v, want %v", out.Directories, want)
+	}
+
+	// directory: ".shelff" should return empty list
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_directories",
+		Arguments: map[string]any{"recursive": true, "directory": ".shelff"},
+	})
+	if err != nil {
+		t.Fatalf("list_directories with directory=.shelff error = %v", err)
+	}
+	out = listDirectoriesOutput{}
+	decodeStructuredContent(t, result, &out)
+	if len(out.Directories) != 0 {
+		t.Fatalf("list_directories with directory=.shelff = %v, want empty", out.Directories)
+	}
+}
+
+func TestCreateDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	// Create a simple directory
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_directory",
+		Arguments: map[string]any{"path": "shelf-a"},
+	})
+	if err != nil {
+		t.Fatalf("create_directory error = %v", err)
+	}
+	var out createDirectoryOutput
+	decodeStructuredContent(t, result, &out)
+	if out.Path != "shelf-a" {
+		t.Fatalf("create_directory output = %#v, want shelf-a", out)
+	}
+	info, err := os.Stat(filepath.Join(root, "shelf-a"))
+	if err != nil || !info.IsDir() {
+		t.Fatalf("directory not created: %v", err)
+	}
+
+	// Create nested directories
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_directory",
+		Arguments: map[string]any{"path": "shelf-b/sub"},
+	})
+	if err != nil {
+		t.Fatalf("create_directory nested error = %v", err)
+	}
+	out = createDirectoryOutput{}
+	decodeStructuredContent(t, result, &out)
+	if out.Path != "shelf-b/sub" {
+		t.Fatalf("create_directory nested output = %#v, want shelf-b/sub", out)
+	}
+	info, err = os.Stat(filepath.Join(root, "shelf-b", "sub"))
+	if err != nil || !info.IsDir() {
+		t.Fatalf("nested directory not created: %v", err)
+	}
+
+	// Idempotent: creating an existing directory succeeds
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_directory",
+		Arguments: map[string]any{"path": "shelf-a"},
+	})
+	if err != nil {
+		t.Fatalf("create_directory idempotent error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("create_directory idempotent IsError = true")
+	}
+}
+
+func TestCreateDirectoryRejectsPathTraversal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	assertToolTraversalError(t, session, "create_directory", map[string]any{"path": "../outside"})
+	assertToolTraversalError(t, session, "create_directory", map[string]any{"path": "escape/sub"})
+}
+
+func TestListDirectoriesRejectsPathTraversal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	assertToolTraversalError(t, session, "list_directories", map[string]any{"recursive": true, "directory": "../outside"})
+	assertToolTraversalError(t, session, "list_directories", map[string]any{"recursive": true, "directory": "escape"})
+}
+
 func TestNewRejectsMissingRoot(t *testing.T) {
 	t.Parallel()
 
