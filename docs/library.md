@@ -317,5 +317,5 @@ Some commonly returned errors:
 
 ## See also
 
-- [shelff specification](../shelff-schema/SPECIFICATION.md)
+- [shelff specification](https://github.com/skoji/shelff-schema/blob/main/SPECIFICATION.md)
 - [shelff iOS/iPadOS app](https://skoji.dev/en/shelff/)
