@@ -41,6 +41,55 @@ func ReadMetadata(pdfPath string) (*SidecarMetadata, error) {
 	}, nil
 }
 
+// WriteMetadata applies a partial update to the metadata for pdfPath.
+// If no sidecar exists, one is created first.
+// The partial map is merged into the existing (or newly created) metadata.
+// Returns the written metadata after round-trip through disk.
+func WriteMetadata(pdfPath string, partial map[string]any) (*SidecarMetadata, error) {
+	info, err := os.Stat(pdfPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrPDFNotFound
+		}
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, ErrPDFNotFound
+	}
+
+	if partial == nil {
+		partial = map[string]any{}
+	}
+
+	existing, err := ReadSidecar(pdfPath)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		existing, err = CreateSidecar(pdfPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	currentMap, err := sidecarToMap(existing)
+	if err != nil {
+		return nil, err
+	}
+	merged := mergeJSONObject(currentMap, partial)
+	merged = normalizeMergedSidecar(currentMap, merged)
+
+	next, err := mapToSidecar(merged)
+	if err != nil {
+		return nil, err
+	}
+	if err := WriteSidecar(pdfPath, next); err != nil {
+		return nil, err
+	}
+
+	return ReadSidecar(pdfPath)
+}
+
 // sidecarToMap converts a SidecarMetadata to a map[string]any,
 // preserving raw JSON (including json.Number) for round-trip fidelity.
 func sidecarToMap(meta *SidecarMetadata) (map[string]any, error) {
