@@ -1,9 +1,7 @@
 package shelff
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 )
 
@@ -102,22 +100,7 @@ func sidecarToMap(meta *SidecarMetadata) (map[string]any, error) {
 		}
 	}
 
-	var decoded map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&decoded); err != nil {
-		return nil, err
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		if err == nil {
-			return nil, errUnexpectedTrailingData
-		}
-		return nil, err
-	}
-	if decoded == nil {
-		decoded = map[string]any{}
-	}
-	return decoded, nil
+	return jsonBytesToMap(data)
 }
 
 func mapToSidecar(value map[string]any) (*SidecarMetadata, error) {
