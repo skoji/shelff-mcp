@@ -73,6 +73,26 @@ func TestReadMetadataReturnsErrPDFNotFound(t *testing.T) {
 	}
 }
 
+func TestReadMetadataReturnsErrPDFNotFoundForDirectory(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	_, err := shelff.ReadMetadata(dir)
+	if !errors.Is(err, shelff.ErrPDFNotFound) {
+		t.Fatalf("error = %v, want ErrPDFNotFound", err)
+	}
+}
+
+func TestWriteMetadataReturnsErrPDFNotFoundForDirectory(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	_, err := shelff.WriteMetadata(dir, map[string]any{})
+	if !errors.Is(err, shelff.ErrPDFNotFound) {
+		t.Fatalf("error = %v, want ErrPDFNotFound", err)
+	}
+}
+
 func TestWriteMetadataCreatesWhenNoSidecar(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
