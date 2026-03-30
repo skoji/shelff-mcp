@@ -106,17 +106,17 @@ type DublinCore struct {
 
 // ReadingProgress tracks how far a user has read.
 type ReadingProgress struct {
-    LastReadPage int        `json:"lastReadPage"`          // 1-indexed
-    LastReadAt   time.Time  `json:"lastReadAt"`            // ISO 8601 UTC
-    TotalPages   int        `json:"totalPages"`
-    Status       *string    `json:"status,omitempty"`      // "unread" | "reading" | "finished"
-    FinishedAt   *time.Time `json:"finishedAt,omitempty"`  // ISO 8601 UTC
+    LastReadPage int            `json:"lastReadPage"`          // 1-indexed
+    LastReadAt   time.Time      `json:"lastReadAt"`            // ISO 8601 UTC
+    TotalPages   int            `json:"totalPages"`
+    Status       *ReadingStatus `json:"status,omitempty"`      // "unread" | "reading" | "finished"
+    FinishedAt   *time.Time     `json:"finishedAt,omitempty"`  // ISO 8601 UTC
 }
 
 // DisplaySettings controls PDF rendering preferences.
 type DisplaySettings struct {
-    Direction  string  `json:"direction"`             // "LTR" | "RTL"
-    PageLayout *string `json:"pageLayout,omitempty"`  // "single" | "spread" | "spread-with-cover"
+    Direction  Direction   `json:"direction"`             // "LTR" | "RTL"
+    PageLayout *PageLayout `json:"pageLayout,omitempty"`  // "single" | "spread" | "spread-with-cover"
 }
 ```
 
@@ -173,7 +173,26 @@ type LibraryStats struct {
 }
 ```
 
-### 3.5 Constants
+### 3.5 Typed String Types
+
+```go
+// Direction represents the reading direction of a PDF.
+type Direction string
+
+func (d Direction) Valid() bool // true for DirectionLTR, DirectionRTL
+
+// PageLayout represents the page layout mode for a PDF.
+type PageLayout string
+
+func (p PageLayout) Valid() bool // true for LayoutSingle, LayoutSpread, LayoutSpreadWithCover
+
+// ReadingStatus represents the reading status of a book.
+type ReadingStatus string
+
+func (s ReadingStatus) Valid() bool // true for StatusUnread, StatusReading, StatusFinished
+```
+
+### 3.6 Constants
 
 ```go
 const (
@@ -183,16 +202,16 @@ const (
     TagsFile          = "tags.json"         // in .shelff/
     SchemaVersion     = 1
 
-    StatusUnread   = "unread"
-    StatusReading  = "reading"
-    StatusFinished = "finished"
+    StatusUnread   ReadingStatus = "unread"
+    StatusReading  ReadingStatus = "reading"
+    StatusFinished ReadingStatus = "finished"
 
-    DirectionLTR = "LTR"
-    DirectionRTL = "RTL"
+    DirectionLTR Direction = "LTR"
+    DirectionRTL Direction = "RTL"
 
-    LayoutSingle          = "single"
-    LayoutSpread          = "spread"
-    LayoutSpreadWithCover = "spread-with-cover"
+    LayoutSingle          PageLayout = "single"
+    LayoutSpread          PageLayout = "spread"
+    LayoutSpreadWithCover PageLayout = "spread-with-cover"
 )
 ```
 
@@ -231,6 +250,8 @@ func ReadSidecar(pdfPath string) (*SidecarMetadata, error)
 func CreateSidecar(pdfPath string) (*SidecarMetadata, error)
 
 // WriteSidecar writes the sidecar JSON for the given PDF.
+// Validates typed fields (Direction, PageLayout, ReadingStatus) before writing;
+// returns ErrInvalidFieldValue if any value is invalid.
 // Preserves unknown top-level fields from the original JSON (round-trip preservation).
 // Creates the file if it does not exist; overwrites if it does.
 // The file is written atomically (write to temp + rename).
@@ -401,7 +422,20 @@ When creating a sidecar for a PDF that has none:
 
 Where `"book"` is the PDF filename with the `.pdf` extension removed. For `"My Report.pdf"`, the title would be `"My Report"`.
 
-### 5.3 Round-trip Preservation
+### 5.3 Write-Strict, Read-Lenient Validation
+
+`WriteSidecar` validates typed string fields before writing:
+- `Direction` must be `"LTR"` or `"RTL"` (when `Display` is non-nil)
+- `PageLayout` must be `"single"`, `"spread"`, or `"spread-with-cover"` (when non-nil)
+- `ReadingStatus` must be `"unread"`, `"reading"`, or `"finished"` (when non-nil)
+
+If any value is invalid, `WriteSidecar` returns `ErrInvalidFieldValue` and does not write the file.
+
+`ReadSidecar` does **not** validate these fields — invalid values are read as-is to preserve round-trip compatibility with files created by external tools.
+
+`category` and `dc:date` are **not** validated.
+
+### 5.4 Round-trip Preservation
 
 This is a **critical requirement**. Implementations must not discard unknown **top-level** fields when reading and writing sidecar files.
 
@@ -424,7 +458,7 @@ This is a **critical requirement**. Implementations must not discard unknown **t
 
 **Example**: A sidecar contains `"x-calibre-id": 42` at the top level and `"dcterms:modified": "2025-01-01"` inside `metadata`. After shelff-go reads, modifies `dc:title`, and writes back, `x-calibre-id` must still be present, but `dcterms:modified` is not preserved.
 
-### 5.4 JSON Output Format
+### 5.5 JSON Output Format
 
 - Encoding: UTF-8
 - Pretty-printed with 2-space indentation
@@ -433,25 +467,25 @@ This is a **critical requirement**. Implementations must not discard unknown **t
 - `dc:date`: stored as-is (string, not parsed or normalized). Typical formats: `"2024"`, `"2024-01"`, `"2024-01-15"`, `"2024-01-15T00:00:00Z"`. shelff-go must not alter the precision.
 - Atomic writes: write to a temporary file in the same directory, then `os.Rename`
 
-### 5.5 Category and Tag Naming
+### 5.6 Category and Tag Naming
 
 - Names are trimmed of leading/trailing whitespace before use
 - Empty names (after trimming) are rejected
 - Category names are unique within the category list
 - Comparison is exact (case-sensitive)
 
-### 5.6 Category Normalization
+### 5.7 Category Normalization
 
 When writing categories.json, the `order` field of each CategoryItem must be normalized to match its array index (0-based). This ensures consistency regardless of how categories were manipulated in memory.
 
-### 5.7 Tag Semantics
+### 5.8 Tag Semantics
 
 - The canonical set of tags comes from scanning all sidecar files (union of all `tags` arrays)
 - `tags.json` only defines display order — it is not the master tag list
 - Tags in `tags.json` that appear in no sidecar are silently excluded from `CollectAllTags` results (but remain in tags.json until explicitly removed)
 - Tags in sidecars but absent from `tags.json` are appended alphabetically when computing display order
 
-### 5.8 Cascade Operations
+### 5.9 Cascade Operations
 
 When `cascade` is true for category/tag rename/remove:
 
@@ -471,14 +505,14 @@ For remove cascade:
 - Category: set `category` to nil if it equals the removed name
 - Tag: remove the tag from the `tags` array
 
-### 5.9 MoveBook / RenameBook Atomicity
+### 5.10 MoveBook / RenameBook Atomicity
 
 1. Move/rename the PDF file
 2. Attempt to move/rename the sidecar (if it exists)
 3. If step 2 fails: roll back step 1 (move/rename the PDF back)
 4. If rollback also fails: return a `RollbackError` wrapping both errors
 
-### 5.10 Directory Scanning
+### 5.11 Directory Scanning
 
 - Traverse the directory tree starting from the library root
 - Skip the `.shelff/` directory (config, not content)
@@ -486,11 +520,11 @@ For remove cascade:
 - A sidecar is identified by the `.pdf.meta.json` suffix
 - Do not follow symbolic links (avoid cycles)
 
-### 5.11 PDFs Without Sidecars
+### 5.12 PDFs Without Sidecars
 
 A PDF without a sidecar is a **normal, valid state**. It means the PDF has no shelff metadata. `ScanBooks` returns such PDFs with `HasSidecar: false`. The caller (e.g., MCP server) can create a sidecar on demand using `CreateSidecar`.
 
-### 5.12 Schema Validation
+### 5.13 Schema Validation
 
 Use the JSON Schema files from the `shelff-schema` submodule. Validation returns a list of human-readable error strings. An empty list means the document is valid.
 
@@ -517,6 +551,8 @@ var (
     ErrCategoryMismatch     = errors.New("category names do not match existing set")
     ErrInvalidSchemaVersion = errors.New("unsupported schema version")
     ErrLibraryNotFound      = errors.New("library directory does not exist")
+    ErrNilSidecarMetadata   = errors.New("sidecar metadata is nil")
+    ErrInvalidFieldValue    = errors.New("invalid field value")
 )
 
 // RollbackError is returned when a multi-step operation fails
