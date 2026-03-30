@@ -19,6 +19,8 @@ var (
 	ErrLibraryNotFound       = errors.New("library root is missing or not a directory")
 	ErrNilSidecarMetadata    = errors.New("sidecar metadata is nil")
 	ErrInvalidFieldValue     = errors.New("invalid field value")
+
+	errUnexpectedTrailingData = errors.New("invalid JSON: unexpected trailing data")
 )
 
 // RollbackError is returned when an operation and its rollback both fail.
