@@ -252,6 +252,7 @@ func CreateSidecar(pdfPath string) (*SidecarMetadata, error)
 // WriteSidecar writes the sidecar JSON for the given PDF.
 // Validates typed fields (Direction, PageLayout, ReadingStatus) before writing;
 // returns ErrInvalidFieldValue if any value is invalid.
+// Returns ErrNilSidecarMetadata if meta is nil.
 // Preserves unknown top-level fields from the original JSON (round-trip preservation).
 // Creates the file if it does not exist; overwrites if it does.
 // The file is written atomically (write to temp + rename).
@@ -550,7 +551,7 @@ var (
     ErrEmptyName            = errors.New("name is empty after trimming")
     ErrCategoryMismatch     = errors.New("category names do not match existing set")
     ErrInvalidSchemaVersion = errors.New("unsupported schema version")
-    ErrLibraryNotFound      = errors.New("library directory does not exist")
+    ErrLibraryNotFound      = errors.New("library root is missing or not a directory")
     ErrNilSidecarMetadata   = errors.New("sidecar metadata is nil")
     ErrInvalidFieldValue    = errors.New("invalid field value")
 )
