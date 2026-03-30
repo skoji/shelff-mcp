@@ -99,29 +99,35 @@ func TestReadOnlyToolsReturnStructuredData(t *testing.T) {
 	defer session.Close()
 
 	readResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "read_sidecar",
+		Name:      "read_metadata",
 		Arguments: map[string]any{"pdfPath": "book.pdf"},
 	})
 	if err != nil {
-		t.Fatalf("read_sidecar error = %v", err)
+		t.Fatalf("read_metadata error = %v", err)
 	}
-	var readOut readSidecarOutput
+	var readOut readMetadataOutput
 	decodeStructuredContent(t, readResult, &readOut)
-	if !readOut.Exists || readOut.Sidecar == nil || readOut.Sidecar.Metadata.Title != "book" {
-		t.Fatalf("read_sidecar output = %#v", readOut)
+	if !readOut.HasSidecar || readOut.Metadata == nil || readOut.Metadata.Metadata.Title != "book" {
+		t.Fatalf("read_metadata output = %#v", readOut)
 	}
 
 	missingReadResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "read_sidecar",
+		Name:      "read_metadata",
 		Arguments: map[string]any{"pdfPath": "nested/draft.pdf"},
 	})
 	if err != nil {
-		t.Fatalf("read_sidecar missing error = %v", err)
+		t.Fatalf("read_metadata missing error = %v", err)
 	}
-	var missingReadOut readSidecarOutput
+	var missingReadOut readMetadataOutput
 	decodeStructuredContent(t, missingReadResult, &missingReadOut)
-	if missingReadOut.Exists || missingReadOut.Sidecar != nil {
-		t.Fatalf("missing read_sidecar output = %#v, want exists=false sidecar=nil", missingReadOut)
+	if missingReadOut.HasSidecar {
+		t.Fatalf("read_metadata missing: hasSidecar = true, want false")
+	}
+	if missingReadOut.Metadata == nil {
+		t.Fatal("read_metadata missing: metadata is nil, want minimal metadata")
+	}
+	if missingReadOut.Metadata.Metadata.Title != "draft" {
+		t.Fatalf("read_metadata missing: title = %q, want %q", missingReadOut.Metadata.Metadata.Title, "draft")
 	}
 
 	scanResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -243,17 +249,17 @@ func TestSidecarMutationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_sidecar error = %v", err)
 	}
-	var createOut readSidecarOutput
+	var createOut readMetadataOutput
 	decodeStructuredContent(t, createResult, &createOut)
-	if !createOut.Exists || createOut.Sidecar == nil || createOut.Sidecar.Metadata.Title != "book" {
+	if !createOut.HasSidecar || createOut.Metadata == nil || createOut.Metadata.Metadata.Title != "book" {
 		t.Fatalf("create_sidecar output = %#v", createOut)
 	}
 
 	writeResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "write_sidecar",
+		Name: "write_metadata",
 		Arguments: map[string]any{
 			"pdfPath": "book.pdf",
-			"sidecar": map[string]any{
+			"metadata": map[string]any{
 				"metadata": map[string]any{
 					"dc:creator": []any{"Ada"},
 				},
@@ -268,21 +274,21 @@ func TestSidecarMutationTools(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("write_sidecar first error = %v", err)
+		t.Fatalf("write_metadata first error = %v", err)
 	}
-	var writeOut readSidecarOutput
+	var writeOut readMetadataOutput
 	decodeStructuredContent(t, writeResult, &writeOut)
-	if writeOut.Sidecar == nil || len(writeOut.Sidecar.Metadata.Creator) != 1 || writeOut.Sidecar.Metadata.Creator[0] != "Ada" {
-		t.Fatalf("write_sidecar first output = %#v", writeOut)
+	if writeOut.Metadata == nil || len(writeOut.Metadata.Metadata.Creator) != 1 || writeOut.Metadata.Metadata.Creator[0] != "Ada" {
+		t.Fatalf("write_metadata first output = %#v", writeOut)
 	}
 
 	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{"schemaVersion":1,"metadata":{"dc:title":"book","dc:creator":["Ada"]},"category":"Reference","tags":["go","mcp"],"reading":{"lastReadPage":10,"lastReadAt":"2026-03-26T10:00:00Z","totalPages":100},"display":{"direction":"RTL"},"x-custom":9007199254740993}`)
 
 	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "write_sidecar",
+		Name: "write_metadata",
 		Arguments: map[string]any{
 			"pdfPath": "book.pdf",
-			"sidecar": map[string]any{
+			"metadata": map[string]any{
 				"schemaVersion": nil,
 				"metadata": map[string]any{
 					"dc:title": nil,
@@ -298,27 +304,27 @@ func TestSidecarMutationTools(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("write_sidecar second error = %v", err)
+		t.Fatalf("write_metadata second error = %v", err)
 	}
-	writeOut = readSidecarOutput{}
+	writeOut = readMetadataOutput{}
 	decodeStructuredContent(t, writeResult, &writeOut)
-	if writeOut.Sidecar == nil || writeOut.Sidecar.Metadata.Title != "book" {
-		t.Fatalf("write_sidecar second output = %#v", writeOut)
+	if writeOut.Metadata == nil || writeOut.Metadata.Metadata.Title != "book" {
+		t.Fatalf("write_metadata second output = %#v", writeOut)
 	}
-	if len(writeOut.Sidecar.Metadata.Creator) != 1 || writeOut.Sidecar.Metadata.Creator[0] != "Ada" {
-		t.Fatalf("write_sidecar creator = %#v, want preserved", writeOut.Sidecar.Metadata.Creator)
+	if len(writeOut.Metadata.Metadata.Creator) != 1 || writeOut.Metadata.Metadata.Creator[0] != "Ada" {
+		t.Fatalf("write_metadata creator = %#v, want preserved", writeOut.Metadata.Metadata.Creator)
 	}
-	if writeOut.Sidecar.SchemaVersion != shelff.SchemaVersion {
-		t.Fatalf("write_sidecar schemaVersion = %d, want %d", writeOut.Sidecar.SchemaVersion, shelff.SchemaVersion)
+	if writeOut.Metadata.SchemaVersion != shelff.SchemaVersion {
+		t.Fatalf("write_metadata schemaVersion = %d, want %d", writeOut.Metadata.SchemaVersion, shelff.SchemaVersion)
 	}
-	if writeOut.Sidecar.Category != nil {
-		t.Fatalf("write_sidecar category = %#v, want nil", writeOut.Sidecar.Category)
+	if writeOut.Metadata.Category != nil {
+		t.Fatalf("write_metadata category = %#v, want nil", writeOut.Metadata.Category)
 	}
-	if writeOut.Sidecar.Reading != nil {
-		t.Fatalf("write_sidecar reading = %#v, want nil", writeOut.Sidecar.Reading)
+	if writeOut.Metadata.Reading != nil {
+		t.Fatalf("write_metadata reading = %#v, want nil", writeOut.Metadata.Reading)
 	}
-	if writeOut.Sidecar.Display != nil {
-		t.Fatalf("write_sidecar display = %#v, want nil", writeOut.Sidecar.Display)
+	if writeOut.Metadata.Display != nil {
+		t.Fatalf("write_metadata display = %#v, want nil", writeOut.Metadata.Display)
 	}
 
 	rawSidecar := readJSONFileUseNumber(t, shelff.SidecarPath(pdfPath))
@@ -330,24 +336,24 @@ func TestSidecarMutationTools(t *testing.T) {
 	}
 
 	writeResult, err = session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "write_sidecar",
+		Name: "write_metadata",
 		Arguments: map[string]any{
 			"pdfPath": "draft.pdf",
-			"sidecar": map[string]any{
+			"metadata": map[string]any{
 				"tags": []any{"bootstrap"},
 			},
 		},
 	})
 	if err != nil {
-		t.Fatalf("write_sidecar bootstrap error = %v", err)
+		t.Fatalf("write_metadata bootstrap error = %v", err)
 	}
-	writeOut = readSidecarOutput{}
+	writeOut = readMetadataOutput{}
 	decodeStructuredContent(t, writeResult, &writeOut)
-	if writeOut.Sidecar == nil || writeOut.Sidecar.Metadata.Title != "draft" {
-		t.Fatalf("write_sidecar bootstrap output = %#v", writeOut)
+	if writeOut.Metadata == nil || writeOut.Metadata.Metadata.Title != "draft" {
+		t.Fatalf("write_metadata bootstrap output = %#v", writeOut)
 	}
-	if !slices.Equal(writeOut.Sidecar.Tags, []string{"bootstrap"}) {
-		t.Fatalf("write_sidecar bootstrap tags = %#v", writeOut.Sidecar.Tags)
+	if !slices.Equal(writeOut.Metadata.Tags, []string{"bootstrap"}) {
+		t.Fatalf("write_metadata bootstrap tags = %#v", writeOut.Metadata.Tags)
 	}
 	if _, err := os.Stat(shelff.SidecarPath(bootstrapPDFPath)); err != nil {
 		t.Fatalf("bootstrap sidecar not written: %v", err)
@@ -830,8 +836,8 @@ func TestReadOnlyToolsRejectPathTraversal(t *testing.T) {
 	session := newClientSession(t, server)
 	defer session.Close()
 
-	assertToolTraversalError(t, session, "read_sidecar", map[string]any{"pdfPath": "../outside.pdf"})
-	assertToolTraversalError(t, session, "read_sidecar", map[string]any{"pdfPath": "escape/outside.pdf"})
+	assertToolTraversalError(t, session, "read_metadata", map[string]any{"pdfPath": "../outside.pdf"})
+	assertToolTraversalError(t, session, "read_metadata", map[string]any{"pdfPath": "escape/outside.pdf"})
 	assertToolTraversalError(t, session, "scan_books", map[string]any{"recursive": true, "directory": "../outside"})
 	assertToolTraversalError(t, session, "scan_books", map[string]any{"recursive": true, "directory": "escape"})
 	assertToolTraversalError(t, session, "rename_book", map[string]any{"pdfPath": "../outside.pdf", "newName": "renamed"})

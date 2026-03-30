@@ -264,7 +264,29 @@ func WriteSidecar(pdfPath string, meta *SidecarMetadata) error
 func DeleteSidecar(pdfPath string) error
 ```
 
-### 4.3 Book Operations (PDF + sidecar as a unit)
+### 4.3 Metadata Operations (exported, stateless)
+
+These functions provide a higher-level abstraction over sidecar operations. They handle sidecar existence transparently, so callers work with "a book's metadata" without needing to manage sidecar files directly.
+
+```go
+// ReadMetadata returns metadata for a PDF.
+// If a sidecar exists, returns its content.
+// If no sidecar exists, returns a minimal SidecarMetadata with
+// dc:title set to the PDF filename (without .pdf extension).
+// Unlike ReadSidecar, this never returns nil for an existing PDF.
+// Returns ErrPDFNotFound if the PDF does not exist.
+func ReadMetadata(pdfPath string) (*SidecarMetadata, error)
+
+// WriteMetadata applies a partial update to the metadata for pdfPath.
+// If no sidecar exists, one is created first.
+// The partial map is merged into the existing (or newly created) metadata.
+// This absorbs the create-or-merge logic that was previously in the MCP layer,
+// so any Go consumer of the library gets the same experience.
+// Returns the written metadata after round-trip through disk.
+func WriteMetadata(pdfPath string, partial map[string]any) (*SidecarMetadata, error)
+```
+
+### 4.4 Book Operations (PDF + sidecar as a unit)
 
 ```go
 // MoveBook moves a PDF and its sidecar (if present) to a destination directory.
@@ -290,7 +312,7 @@ func DeleteBook(pdfPath string) error
 
 **Consistency for DeleteBook**: DeleteBook should avoid leaving the library in a partial state. If sidecar deletion fails after the PDF has been staged for deletion, the PDF should be restored to its original path and the operation should return an error.
 
-### 4.4 Library Type
+### 4.5 Library Type
 
 ```go
 // Library represents a shelff documents directory.
@@ -307,7 +329,7 @@ func OpenLibrary(rootDir string) (*Library, error)
 func (l *Library) Root() string
 ```
 
-### 4.5 Category Operations (on Library)
+### 4.6 Category Operations (on Library)
 
 ```go
 // ReadCategories reads .shelff/categories.json.
@@ -342,7 +364,7 @@ func (l *Library) RenameCategory(oldName string, newName string, cascade bool) e
 func (l *Library) ReorderCategories(names []string) error
 ```
 
-### 4.6 Tag Operations (on Library)
+### 4.7 Tag Operations (on Library)
 
 ```go
 // ReadTagOrder reads .shelff/tags.json.
@@ -373,7 +395,7 @@ func (l *Library) RenameTag(oldName string, newName string, cascade bool) error
 func (l *Library) ReorderTags(names []string) error
 ```
 
-### 4.7 Query Operations (on Library)
+### 4.8 Query Operations (on Library)
 
 ```go
 // ScanBooks scans the library for PDF files and their sidecar status.
@@ -583,9 +605,9 @@ SHELFF_ROOT=/path/to/shelff/Documents shelff-mcp
 
 | Tool Name | Library Function | Notes |
 |---|---|---|
-| `read_sidecar` | `ReadSidecar` | |
+| `read_metadata` | `ReadMetadata` | Returns metadata even without sidecar |
 | `create_sidecar` | `CreateSidecar` | |
-| `write_sidecar` | `WriteSidecar` | Accepts partial updates (merge with existing) |
+| `write_metadata` | `WriteMetadata` | Accepts partial updates (merge with existing) |
 | `delete_sidecar` | `DeleteSidecar` | |
 | `move_book` | `MoveBook` | |
 | `rename_book` | `RenameBook` | |
@@ -611,14 +633,11 @@ SHELFF_ROOT=/path/to/shelff/Documents shelff-mcp
 |---|---|
 | `DeleteBook` | Accident prevention — deleting PDFs is destructive and irreversible |
 
-### 7.4 Tool: `write_sidecar` — Partial Update Semantics
+### 7.4 Tool: `write_metadata` — Partial Update Semantics
 
-The MCP `write_sidecar` tool accepts a **partial JSON object**. Only the fields present in the input are updated; absent fields are left unchanged. This is an MCP-layer convenience — the library's `WriteSidecar` always writes the full struct.
+The MCP `write_metadata` tool accepts a **partial JSON object**. Only the fields present in the input are updated; absent fields are left unchanged.
 
-Implementation in the MCP layer:
-1. `ReadSidecar` (or `CreateSidecar` if no sidecar exists)
-2. Merge the input fields into the existing metadata
-3. `WriteSidecar` the merged result
+The create-or-merge logic is implemented in `shelff.WriteMetadata`, so the MCP handler is a thin wrapper that resolves the path and delegates to the library function.
 
 ### 7.5 Tool Input/Output Format
 
