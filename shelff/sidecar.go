@@ -2,6 +2,7 @@ package shelff
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,6 +87,9 @@ func WriteSidecar(pdfPath string, meta *SidecarMetadata) error {
 	if meta == nil {
 		return ErrNilSidecarMetadata
 	}
+	if err := validateSidecarMetadata(meta); err != nil {
+		return err
+	}
 
 	normalized := normalizeSidecarMetadata(meta)
 	data, err := writeMergedJSONFile(SidecarPath(pdfPath), normalized, meta.rawJSON, knownSidecarTopLevelKeys)
@@ -112,6 +116,23 @@ func pdfTitleFromPath(pdfPath string) string {
 		return strings.TrimSuffix(base, ext)
 	}
 	return base
+}
+
+func validateSidecarMetadata(meta *SidecarMetadata) error {
+	if meta.Display != nil {
+		if !meta.Display.Direction.Valid() {
+			return fmt.Errorf("%w: direction %q", ErrInvalidFieldValue, meta.Display.Direction)
+		}
+		if meta.Display.PageLayout != nil && !meta.Display.PageLayout.Valid() {
+			return fmt.Errorf("%w: pageLayout %q", ErrInvalidFieldValue, *meta.Display.PageLayout)
+		}
+	}
+	if meta.Reading != nil && meta.Reading.Status != nil {
+		if !meta.Reading.Status.Valid() {
+			return fmt.Errorf("%w: status %q", ErrInvalidFieldValue, *meta.Reading.Status)
+		}
+	}
+	return nil
 }
 
 func normalizeSidecarMetadata(meta *SidecarMetadata) *SidecarMetadata {
