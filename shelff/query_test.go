@@ -304,7 +304,7 @@ func TestStatsCountsBooksTagsCategoriesStatusesAndOrphans(t *testing.T) {
 	if stats.TagCounts["fantasy"] != 1 || stats.TagCounts["history"] != 2 {
 		t.Fatalf("TagCounts = %#v, want fantasy=1 history=2", stats.TagCounts)
 	}
-	if stats.StatusCounts[shelff.StatusReading] != 1 || stats.StatusCounts[""] != 2 {
+	if stats.StatusCounts[string(shelff.StatusReading)] != 1 || stats.StatusCounts[""] != 2 {
 		t.Fatalf("StatusCounts = %#v, want reading=1 empty=2", stats.StatusCounts)
 	}
 	if _, err := library.Validate(noReadingPDF); err != nil && !errors.Is(err, shelff.ErrSidecarNotFound) {

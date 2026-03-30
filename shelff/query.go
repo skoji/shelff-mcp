@@ -186,7 +186,7 @@ func (l *Library) Stats() (*LibraryStats, error) {
 
 		status := ""
 		if meta.Reading != nil && meta.Reading.Status != nil {
-			status = *meta.Reading.Status
+			status = string(*meta.Reading.Status)
 		}
 		stats.StatusCounts[status]++
 	}
