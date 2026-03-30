@@ -43,6 +43,7 @@ func ReadMetadata(pdfPath string) (*SidecarMetadata, error) {
 // If no sidecar exists, one is created first.
 // The partial map is merged into the existing (or newly created) metadata.
 // Returns the written metadata after round-trip through disk.
+// Returns ErrPDFNotFound if the PDF does not exist or is a directory.
 func WriteMetadata(pdfPath string, partial map[string]any) (*SidecarMetadata, error) {
 	info, err := os.Stat(pdfPath)
 	if err != nil {
