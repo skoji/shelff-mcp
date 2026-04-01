@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skoji/shelff-go/shelff"
+	"github.com/skoji/shelff-mcp/shelff"
 )
 
 func TestScanBooksRecursiveSkipsConfigDirectory(t *testing.T) {

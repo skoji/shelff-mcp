@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skoji/shelff-go/internal/mcpserver"
+	"github.com/skoji/shelff-mcp/internal/mcpserver"
 )
 
 func TestResolveRoot(t *testing.T) {

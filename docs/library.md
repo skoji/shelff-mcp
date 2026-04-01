@@ -3,7 +3,7 @@
 The `shelff` package is a Go library for working with [shelff](https://skoji.dev/en/shelff/) libraries.
 
 ```bash
-go get github.com/skoji/shelff-go/shelff
+go get github.com/skoji/shelff-mcp/shelff
 ```
 
 The library currently requires Go 1.25 or later.
@@ -36,7 +36,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/skoji/shelff-go/shelff"
+	"github.com/skoji/shelff-mcp/shelff"
 )
 
 func main() {

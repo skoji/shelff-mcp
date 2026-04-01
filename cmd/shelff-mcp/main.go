@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/skoji/shelff-go/internal/mcpserver"
+	"github.com/skoji/shelff-mcp/internal/mcpserver"
 )
 
 func main() {

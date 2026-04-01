@@ -1,12 +1,12 @@
-# shelff-go Design Document
+# shelff-mcp Design Document
 
-> This document is the authoritative implementation specification for shelff-go.
+> This document is the authoritative implementation specification for shelff-mcp.
 > An implementer should be able to build the complete library and MCP server from this document alone,
 > referencing only the shelff-schema repository for JSON Schema definitions.
 
 ## 1. Overview
 
-shelff-go is a Go library and MCP server for managing shelff metadata — the sidecar JSON files that accompany PDFs in a shelff library.
+shelff-mcp is a Go library and MCP server for managing shelff metadata — the sidecar JSON files that accompany PDFs in a shelff library.
 
 ### 1.1 Purpose
 
@@ -14,7 +14,7 @@ shelff-go is a Go library and MCP server for managing shelff metadata — the si
 - Serve as the foundation for a Shelff MCP server
 - **Prove the portability of shelff's sidecar JSON specification** by implementing it in a language other than Swift — surfacing any implicit Swift dependencies in the format
 
-### 1.2 What shelff-go is NOT
+### 1.2 What shelff-mcp is NOT
 
 - Not a PDF reader or renderer
 - Not a replacement for the shelff iOS app
@@ -22,7 +22,7 @@ shelff-go is a Go library and MCP server for managing shelff metadata — the si
 
 ### 1.3 Repository
 
-- **Repository**: `github.com/skoji/shelff-go`
+- **Repository**: `github.com/skoji/shelff-mcp`
 - **Schema**: `github.com/skoji/shelff-schema` (included as a git submodule)
 - **License**: TBD
 
@@ -31,7 +31,7 @@ shelff-go is a Go library and MCP server for managing shelff metadata — the si
 ### 2.1 Go Module
 
 ```
-module github.com/skoji/shelff-go
+module github.com/skoji/shelff-mcp
 
 go 1.23
 ```
@@ -41,7 +41,7 @@ Minimum Go version: 1.23 (for `slices`, `maps` packages and `slog` in standard l
 ### 2.2 Directory Structure
 
 ```
-shelff-go/
+shelff-mcp/
 ├── shelff-schema/              # git submodule → github.com/skoji/shelff-schema
 │   ├── sidecar.schema.json
 │   ├── categories.schema.json
@@ -479,7 +479,7 @@ This is a **critical requirement**. Implementations must not discard unknown **t
 **Known metadata keys** (anything else within `metadata` is rewritten away):
 `dc:title`, `dc:creator`, `dc:date`, `dc:publisher`, `dc:language`, `dc:subject`, `dc:identifier`
 
-**Example**: A sidecar contains `"x-calibre-id": 42` at the top level and `"dcterms:modified": "2025-01-01"` inside `metadata`. After shelff-go reads, modifies `dc:title`, and writes back, `x-calibre-id` must still be present, but `dcterms:modified` is not preserved.
+**Example**: A sidecar contains `"x-calibre-id": 42` at the top level and `"dcterms:modified": "2025-01-01"` inside `metadata`. After shelff-mcp reads, modifies `dc:title`, and writes back, `x-calibre-id` must still be present, but `dcterms:modified` is not preserved.
 
 ### 5.5 JSON Output Format
 
@@ -487,7 +487,7 @@ This is a **critical requirement**. Implementations must not discard unknown **t
 - Pretty-printed with 2-space indentation
 - Keys sorted alphabetically (for deterministic diffs)
 - Date-time fields: ISO 8601 in UTC (e.g., `"2026-03-20T10:30:00Z"`)
-- `dc:date`: stored as-is (string, not parsed or normalized). Typical formats: `"2024"`, `"2024-01"`, `"2024-01-15"`, `"2024-01-15T00:00:00Z"`. shelff-go must not alter the precision.
+- `dc:date`: stored as-is (string, not parsed or normalized). Typical formats: `"2024"`, `"2024-01"`, `"2024-01-15"`, `"2024-01-15T00:00:00Z"`. shelff-mcp must not alter the precision.
 - Atomic writes: write to a temporary file in the same directory, then `os.Rename`
 
 ### 5.6 Category and Tag Naming
@@ -557,7 +557,7 @@ Validate checks:
 - Enum values valid
 - `schemaVersion` / `version` equals 1
 
-Validation does NOT reject unknown fields (schemas use `additionalProperties: true` at the top level and in metadata), even though unknown keys within `metadata` are not preserved by shelff-go when rewriting.
+Validation does NOT reject unknown fields (schemas use `additionalProperties: true` at the top level and in metadata), even though unknown keys within `metadata` are not preserved by shelff-mcp when rewriting.
 
 ## 6. Error Types
 
@@ -589,7 +589,7 @@ type RollbackError struct {
 
 ## 7. MCP Server Specification
 
-The MCP server (`cmd/shelff-mcp/`) exposes shelff-go library functions as MCP tools. It uses stdio transport.
+The MCP server (`cmd/shelff-mcp/`) exposes shelff-mcp library functions as MCP tools. It uses stdio transport.
 
 ### 7.1 Server Initialization
 
@@ -738,7 +738,7 @@ The `tags.schema.json` description mentions `tag-order.json` as the filename, bu
 
 ### 9.2 No iCloud / NSFileCoordinator
 
-shelff-go operates on a plain filesystem. It does not use iCloud APIs or NSFileCoordinator. When used to operate on an iCloud Drive directory from macOS, file coordination is the caller's responsibility. In practice, for MCP use cases (single-process, sequential access), this is not an issue.
+shelff-mcp operates on a plain filesystem. It does not use iCloud APIs or NSFileCoordinator. When used to operate on an iCloud Drive directory from macOS, file coordination is the caller's responsibility. In practice, for MCP use cases (single-process, sequential access), this is not an issue.
 
 ### 9.3 categories.json and tags.json Round-trip Preservation
 
@@ -746,4 +746,4 @@ Like sidecars, `categories.json` and `tags.json` use `additionalProperties: true
 
 ### 9.4 Relationship to shelff App
 
-shelff-go and the shelff iPad app operate on the same file format but are independent implementations. They do not communicate directly. If both modify the same files (e.g., shelff-go via MCP on a Mac, shelff app on iPad), iCloud handles sync and conflict resolution at the file level. Sidecar-level conflict resolution (e.g., "newer lastReadAt wins") is handled by the shelff app via `SidecarDocument`; shelff-go does not implement conflict resolution.
+shelff-mcp and the shelff iPad app operate on the same file format but are independent implementations. They do not communicate directly. If both modify the same files (e.g., shelff-mcp via MCP on a Mac, shelff app on iPad), iCloud handles sync and conflict resolution at the file level. Sidecar-level conflict resolution (e.g., "newer lastReadAt wins") is handled by the shelff app via `SidecarDocument`; shelff-mcp does not implement conflict resolution.
