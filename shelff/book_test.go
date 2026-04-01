@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/skoji/shelff-go/shelff"
+	"github.com/skoji/shelff-mcp/shelff"
 )
 
 func TestMoveBookMovesPDFAndSidecar(t *testing.T) {

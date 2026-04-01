@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/skoji/shelff-go/shelff"
+	"github.com/skoji/shelff-mcp/shelff"
 )
 
 func Example() {

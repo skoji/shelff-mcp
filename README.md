@@ -17,10 +17,10 @@ An MCP (Model Context Protocol) server for managing [shelff](https://skoji.dev/e
 **Using `go install`** (requires Go 1.25+):
 
 ```bash
-go install github.com/skoji/shelff-go/cmd/shelff-mcp@latest
+go install github.com/skoji/shelff-mcp/cmd/shelff-mcp@latest
 ```
 
-**Download a prebuilt binary** from the [Releases page](https://github.com/skoji/shelff-go/releases).
+**Download a prebuilt binary** from the [Releases page](https://github.com/skoji/shelff-mcp/releases).
 
 ### 2. Configure your AI agent
 
@@ -134,7 +134,7 @@ When using Claude, `scan_books` results may be truncated if your library is larg
 The underlying Go library (`shelff`) can be used independently. See the [library documentation](./docs/library.md) for API details.
 
 ```bash
-go get github.com/skoji/shelff-go/shelff
+go get github.com/skoji/shelff-mcp/shelff
 ```
 
 ## See also

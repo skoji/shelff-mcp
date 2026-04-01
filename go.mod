@@ -1,4 +1,4 @@
-module github.com/skoji/shelff-go
+module github.com/skoji/shelff-mcp
 
 go 1.25.0
 

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/skoji/shelff-go/shelff"
+	"github.com/skoji/shelff-mcp/shelff"
 )
 
 func TestRollbackErrorUnwrapIncludesOriginalAndRollbackErrors(t *testing.T) {

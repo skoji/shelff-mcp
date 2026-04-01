@@ -3,7 +3,7 @@ package shelff_test
 import (
 	"testing"
 
-	"github.com/skoji/shelff-go/shelff"
+	"github.com/skoji/shelff-mcp/shelff"
 )
 
 func TestDirectionValid(t *testing.T) {
