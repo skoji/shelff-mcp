@@ -454,110 +454,22 @@ func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBoo
 }
 
 func (s *Server) listDirectories(_ context.Context, _ *mcp.CallToolRequest, in listDirectoriesInput) (*mcp.CallToolResult, listDirectoriesOutput, error) {
-	startDir := s.library.Root()
+	var directory string
 	if in.Directory != nil {
-		dir := strings.TrimSpace(*in.Directory)
-		if dir != "" {
-			resolved, err := s.resolveDirectoryPath(dir)
-			if err != nil {
-				return nil, listDirectoriesOutput{}, err
-			}
-			resolved, err = resolveExistingPath(resolved)
-			if err != nil {
-				return nil, listDirectoriesOutput{}, err
-			}
-			if err := s.ensureWithinRoot(resolved); err != nil {
-				return nil, listDirectoriesOutput{}, err
-			}
-			startDir = resolved
-		}
+		directory = *in.Directory
 	}
-
-	configDir := filepath.Clean(filepath.Join(s.library.Root(), shelff.ConfigDir))
-	cleanStart := filepath.Clean(startDir)
-	if cleanStart == configDir || strings.HasPrefix(cleanStart, configDir+string(filepath.Separator)) {
-		return nil, listDirectoriesOutput{Directories: []string{}}, nil
-	}
-
-	var dirs []string
-	entries, err := os.ReadDir(startDir)
+	dirs, err := s.library.ListDirectories(directory, in.Recursive)
 	if err != nil {
-		return nil, listDirectoriesOutput{}, err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if entry.Name() == shelff.ConfigDir {
-			continue
-		}
-		rel, err := s.relativePath(filepath.Join(startDir, entry.Name()))
-		if err != nil {
-			return nil, listDirectoriesOutput{}, err
-		}
-		dirs = append(dirs, rel)
-		if in.Recursive {
-			sub, err := s.listSubdirectories(filepath.Join(startDir, entry.Name()))
-			if err != nil {
-				return nil, listDirectoriesOutput{}, err
-			}
-			dirs = append(dirs, sub...)
-		}
-	}
-	if dirs == nil {
-		dirs = []string{}
+		return nil, listDirectoriesOutput{}, mapPathOutsideRoot(err)
 	}
 	return nil, listDirectoriesOutput{Directories: dirs}, nil
 }
 
-func (s *Server) listSubdirectories(dir string) ([]string, error) {
-	var dirs []string
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if entry.Name() == shelff.ConfigDir {
-			continue
-		}
-		full := filepath.Join(dir, entry.Name())
-		rel, err := s.relativePath(full)
-		if err != nil {
-			return nil, err
-		}
-		dirs = append(dirs, rel)
-		sub, err := s.listSubdirectories(full)
-		if err != nil {
-			return nil, err
-		}
-		dirs = append(dirs, sub...)
-	}
-	return dirs, nil
-}
-
 func (s *Server) createDirectory(_ context.Context, _ *mcp.CallToolRequest, in createDirectoryInput) (*mcp.CallToolResult, createDirectoryOutput, error) {
-	resolved, err := s.resolvePath(in.Path)
-	if err != nil {
-		return nil, createDirectoryOutput{}, err
+	if err := s.library.MakeDirectory(in.Path); err != nil {
+		return nil, createDirectoryOutput{}, mapPathOutsideRoot(err)
 	}
-	resolved, err = resolveExistingPath(resolved)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, createDirectoryOutput{}, err
-	}
-	if err := s.ensureWithinRoot(resolved); err != nil {
-		return nil, createDirectoryOutput{}, err
-	}
-	if err := os.MkdirAll(resolved, 0o755); err != nil {
-		return nil, createDirectoryOutput{}, err
-	}
-	rel, err := s.relativePath(resolved)
-	if err != nil {
-		return nil, createDirectoryOutput{}, err
-	}
-	return nil, createDirectoryOutput{Path: rel}, nil
+	return nil, createDirectoryOutput{Path: in.Path}, nil
 }
 
 func (s *Server) findOrphanedSidecars(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, orphanedSidecarsOutput, error) {
@@ -810,6 +722,13 @@ func (s *Server) relativePath(path string) (string, error) {
 		return "", ErrPathTraversal
 	}
 	return filepath.ToSlash(rel), nil
+}
+
+func mapPathOutsideRoot(err error) error {
+	if errors.Is(err, shelff.ErrPathOutsideRoot) {
+		return ErrPathTraversal
+	}
+	return err
 }
 
 func buildVersion() string {

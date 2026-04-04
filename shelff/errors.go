@@ -19,6 +19,8 @@ var (
 	ErrLibraryNotFound       = errors.New("library root is missing or not a directory")
 	ErrNilSidecarMetadata    = errors.New("sidecar metadata is nil")
 	ErrInvalidFieldValue     = errors.New("invalid field value")
+	ErrPathOutsideRoot       = errors.New("path resolves outside the library root")
+	ErrDirectoryNotEmpty     = errors.New("directory is not empty")
 )
 
 // RollbackError is returned when an operation and its rollback both fail.

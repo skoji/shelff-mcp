@@ -73,7 +73,7 @@ func (l *Library) DeleteDirectory(relPath string) error {
 		return err
 	}
 	if len(entries) > 0 {
-		return fmt.Errorf("directory is not empty: %s", relPath)
+		return fmt.Errorf("%w: %s", ErrDirectoryNotEmpty, relPath)
 	}
 
 	return os.Remove(resolved)
@@ -98,14 +98,54 @@ func (l *Library) resolveDirectoryRelPath(relPath string) (string, error) {
 	clean := filepath.Clean(filepath.FromSlash(trimmed))
 	abs := filepath.Join(l.root, clean)
 
+	// Check the literal path first.
 	rel, err := filepath.Rel(l.root, abs)
 	if err != nil {
 		return "", err
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q is outside library root", relPath)
+		return "", fmt.Errorf("%w: %s", ErrPathOutsideRoot, relPath)
 	}
+
+	// Resolve symlinks for the existing portion and re-check.
+	resolved, err := resolveExistingPrefix(abs)
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(l.root)
+	if err != nil {
+		return "", err
+	}
+	relResolved, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", ErrPathOutsideRoot, relPath)
+	}
+	if relResolved == ".." || strings.HasPrefix(relResolved, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %s", ErrPathOutsideRoot, relPath)
+	}
+
 	return abs, nil
+}
+
+// resolveExistingPrefix resolves symlinks for the longest existing prefix of
+// the path, then appends any remaining (non-existent) segments.
+func resolveExistingPrefix(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path, nil
+	}
+	resolvedParent, err := resolveExistingPrefix(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolvedParent, filepath.Base(path)), nil
 }
 
 func (l *Library) listDirsFrom(dir string, recursive bool) ([]string, error) {
