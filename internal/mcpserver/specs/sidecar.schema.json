@@ -29,6 +29,15 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Tags assigned to this book. A book can have zero or more tags."
+    },
+    "bookmarks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Bookmark" },
+      "description": "User-defined page bookmarks. Distinct from the PDF document outline; these are added by the reader to mark pages of interest."
+    },
+    "collection": {
+      "$ref": "#/$defs/Collection",
+      "description": "The collection (series or magazine) this book belongs to. A book can belong to at most one collection."
     }
   },
   "$defs": {
@@ -118,6 +127,39 @@
           "type": "string",
           "enum": ["single", "spread", "spread-with-cover"],
           "description": "Page layout mode. 'single' = one page at a time, 'spread' = two pages side by side, 'spread-with-cover' = spread with first page displayed alone."
+        }
+      }
+    },
+    "Bookmark": {
+      "type": "object",
+      "description": "A user-defined bookmark on a specific page.",
+      "required": ["page"],
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The bookmarked page number (1-indexed)."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional user-supplied label for this bookmark."
+        }
+      }
+    },
+    "Collection": {
+      "type": "object",
+      "description": "A collection (series or magazine) that this book belongs to. Based on EPUB's belongs-to-collection / group-position concepts, simplified to a single collection without type distinction.",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The name of the collection or series (e.g. 'Monthly Swift', 'Introduction to Swift')."
+        },
+        "position": {
+          "type": "number",
+          "description": "The position of this book within the collection. Fractional values are allowed (e.g. 0.5 for a special half-volume). Omit for collections where ordering is not by volume number (e.g. magazines ordered by date)."
         }
       }
     }

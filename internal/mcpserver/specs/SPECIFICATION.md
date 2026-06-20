@@ -33,6 +33,56 @@ If no sidecar file exists, the PDF has no shelff metadata (title falls back to t
 
 **Schema**: [sidecar.schema.json](./sidecar.schema.json)
 
+#### Bookmarks
+
+The `bookmarks` field stores user-defined page bookmarks (digital "sticky notes"). Each entry has a `page` (1-indexed integer) and an optional `label` string. Bookmarks are distinct from the PDF's built-in document outline; they are added by the reader to mark pages of interest.
+
+```json
+"bookmarks": [
+  { "page": 3, "label": "Important diagram" },
+  { "page": 15 },
+  { "page": 42 }
+]
+```
+
+When `label` is absent, the reader UI may render a fallback such as the page number.
+
+#### Collection
+
+The `collection` field identifies the series or magazine this book belongs to. A book can belong to at most one collection. The field is optional; when absent, the book is treated as not belonging to any collection.
+
+Magazine (ordered by date, no position):
+
+```json
+"collection": {
+  "title": "Monthly Swift"
+}
+```
+
+Series (ordered by volume number):
+
+```json
+"collection": {
+  "title": "Introduction to Swift",
+  "position": 1
+}
+```
+
+Half-volume or special edition:
+
+```json
+"collection": {
+  "title": "Introduction to Swift",
+  "position": 0.5
+}
+```
+
+Fields:
+- `title` (string, required): The name of the collection or series.
+- `position` (number, optional): The position within the collection. Fractional values are allowed (e.g. `0.5` for a special half-volume). Omit for collections ordered by other means (e.g. magazines ordered by publication date).
+
+This design is inspired by EPUB's `belongs-to-collection` / `group-position` metadata, simplified to a single collection without a type distinction (`series` vs `set`).
+
 ### Category List (`.shelff/categories.json`)
 
 An ordered list of categories. Each PDF can belong to at most one category, specified by the `category` field in its sidecar. Categories must be defined in this file to appear in the UI, but a sidecar may reference a category name not yet listed here (it will be treated as uncategorized until the category is created).
