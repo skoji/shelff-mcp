@@ -265,6 +265,94 @@ func TestWriteMetadataPreservesUnknownTopLevelFields(t *testing.T) {
 	}
 }
 
+func TestReadMetadataReturnsCollection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pdfPath := filepath.Join(dir, "book.pdf")
+	if err := os.WriteFile(pdfPath, []byte("%PDF-"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "collection": {"title": "Monthly Swift", "position": 4}
+}`
+	if err := os.WriteFile(shelff.SidecarPath(pdfPath), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, err := shelff.ReadMetadata(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+	if meta.Collection == nil {
+		t.Fatal("Collection = nil, want populated")
+	}
+	if meta.Collection.Title != "Monthly Swift" {
+		t.Fatalf("Collection.Title = %q, want %q", meta.Collection.Title, "Monthly Swift")
+	}
+	if meta.Collection.Position == nil || *meta.Collection.Position != 4 {
+		t.Fatalf("Collection.Position = %v, want 4", meta.Collection.Position)
+	}
+}
+
+func TestWriteMetadataAddsCollection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pdfPath := filepath.Join(dir, "book.pdf")
+	if err := os.WriteFile(pdfPath, []byte("%PDF-"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, err := shelff.WriteMetadata(pdfPath, map[string]any{
+		"collection": map[string]any{
+			"title":    "Monthly Swift",
+			"position": 7,
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteMetadata error = %v", err)
+	}
+	if meta.Collection == nil {
+		t.Fatal("Collection = nil, want populated")
+	}
+	if meta.Collection.Title != "Monthly Swift" {
+		t.Fatalf("Collection.Title = %q, want %q", meta.Collection.Title, "Monthly Swift")
+	}
+	if meta.Collection.Position == nil || *meta.Collection.Position != 7 {
+		t.Fatalf("Collection.Position = %v, want 7", meta.Collection.Position)
+	}
+}
+
+func TestWriteMetadataDeletesCollection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pdfPath := filepath.Join(dir, "book.pdf")
+	if err := os.WriteFile(pdfPath, []byte("%PDF-"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "collection": {"title": "Monthly Swift"}
+}`
+	if err := os.WriteFile(shelff.SidecarPath(pdfPath), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, err := shelff.WriteMetadata(pdfPath, map[string]any{
+		"collection": nil,
+	})
+	if err != nil {
+		t.Fatalf("WriteMetadata error = %v", err)
+	}
+	if meta.Collection != nil {
+		t.Fatalf("Collection = %v, want nil", meta.Collection)
+	}
+}
+
 func TestWriteMetadataReturnsErrPDFNotFound(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
