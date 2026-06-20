@@ -575,6 +575,156 @@ func TestReadSidecarAcceptsInvalidEnumValues(t *testing.T) {
 	}
 }
 
+func TestReadSidecarParsesCollection(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	sidecarPath := shelff.SidecarPath(pdfPath)
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "collection": {
+    "title": "Monthly Swift",
+    "position": 3.5
+  }
+}`
+	writeFile(t, sidecarPath, []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta == nil {
+		t.Fatal("ReadSidecar returned nil")
+	}
+	if meta.Collection == nil {
+		t.Fatal("Collection = nil, want populated")
+	}
+	if meta.Collection.Title != "Monthly Swift" {
+		t.Fatalf("Collection.Title = %q, want %q", meta.Collection.Title, "Monthly Swift")
+	}
+	if meta.Collection.Position == nil {
+		t.Fatal("Collection.Position = nil, want 3.5")
+	}
+	if *meta.Collection.Position != 3.5 {
+		t.Fatalf("Collection.Position = %v, want 3.5", *meta.Collection.Position)
+	}
+}
+
+func TestReadSidecarParsesCollectionWithoutPosition(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	sidecarPath := shelff.SidecarPath(pdfPath)
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "collection": {
+    "title": "Quarterly Review"
+  }
+}`
+	writeFile(t, sidecarPath, []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta.Collection == nil {
+		t.Fatal("Collection = nil, want populated")
+	}
+	if meta.Collection.Title != "Quarterly Review" {
+		t.Fatalf("Collection.Title = %q, want %q", meta.Collection.Title, "Quarterly Review")
+	}
+	if meta.Collection.Position != nil {
+		t.Fatalf("Collection.Position = %v, want nil", *meta.Collection.Position)
+	}
+}
+
+func TestWriteSidecarRoundTripsCollection(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	position := 2.0
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata: shelff.DublinCore{
+			Title: "Book",
+		},
+		Collection: &shelff.Collection{
+			Title:    "Intro to Swift",
+			Position: &position,
+		},
+	}
+
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	decoded := decodeJSONFile(t, shelff.SidecarPath(pdfPath))
+	collection, ok := decoded["collection"].(map[string]any)
+	if !ok {
+		t.Fatalf("collection = %#v, want JSON object", decoded["collection"])
+	}
+	if collection["title"] != "Intro to Swift" {
+		t.Fatalf("collection.title = %#v, want %q", collection["title"], "Intro to Swift")
+	}
+	if got := collection["position"].(json.Number).String(); got != "2" {
+		t.Fatalf("collection.position = %#v, want 2", collection["position"])
+	}
+
+	readBack, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if readBack.Collection == nil || readBack.Collection.Title != "Intro to Swift" {
+		t.Fatalf("readBack.Collection = %#v, want title %q", readBack.Collection, "Intro to Swift")
+	}
+	if readBack.Collection.Position == nil || *readBack.Collection.Position != 2.0 {
+		t.Fatalf("readBack.Collection.Position = %#v, want 2", readBack.Collection.Position)
+	}
+}
+
+func TestWriteSidecarOmitsCollectionWhenNil(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata:      shelff.DublinCore{Title: "Book"},
+	}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+	data := string(readFile(t, shelff.SidecarPath(pdfPath)))
+	if strings.Contains(data, `"collection"`) {
+		t.Fatalf("expected no collection key, got %s", data)
+	}
+}
+
+func TestWriteSidecarRejectsCollectionWithoutTitle(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata:      shelff.DublinCore{Title: "Book"},
+		Collection:    &shelff.Collection{},
+	}
+	err := shelff.WriteSidecar(pdfPath, meta)
+	if !errors.Is(err, shelff.ErrInvalidFieldValue) {
+		t.Fatalf("WriteSidecar with empty collection title: got %v, want ErrInvalidFieldValue", err)
+	}
+}
+
 func writeTestPDF(t *testing.T, dir string, name string) string {
 	t.Helper()
 

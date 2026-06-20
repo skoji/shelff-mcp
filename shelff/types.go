@@ -10,8 +10,17 @@ type SidecarMetadata struct {
 	Display       *DisplaySettings `json:"display,omitempty"`
 	Category      *string          `json:"category,omitempty"`
 	Tags          []string         `json:"tags,omitempty"`
+	Collection    *Collection      `json:"collection,omitempty"`
 
 	rawJSON []byte
+}
+
+// Collection represents a series or magazine a book belongs to.
+// Based on EPUB's belongs-to-collection / group-position concepts,
+// simplified to a single collection without a type distinction.
+type Collection struct {
+	Title    string   `json:"title"`
+	Position *float64 `json:"position,omitempty"`
 }
 
 // DublinCore holds Dublin Core metadata fields.
