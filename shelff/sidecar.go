@@ -16,6 +16,7 @@ var (
 		"display":       {},
 		"category":      {},
 		"tags":          {},
+		"collection":    {},
 	}
 )
 
@@ -131,6 +132,9 @@ func validateSidecarMetadata(meta *SidecarMetadata) error {
 		if !meta.Reading.Status.Valid() {
 			return fmt.Errorf("%w: status %q", ErrInvalidFieldValue, *meta.Reading.Status)
 		}
+	}
+	if meta.Collection != nil && meta.Collection.Title == "" {
+		return fmt.Errorf("%w: collection.title must not be empty", ErrInvalidFieldValue)
 	}
 	return nil
 }
