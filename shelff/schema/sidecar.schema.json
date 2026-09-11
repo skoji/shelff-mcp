@@ -127,7 +127,34 @@
           "type": "string",
           "enum": ["single", "spread", "spread-with-cover"],
           "description": "Page layout mode. 'single' = one page at a time, 'spread' = two pages side by side, 'spread-with-cover' = spread with first page displayed alone."
+        },
+        "crop": {
+          "$ref": "#/$defs/CropSettings",
+          "description": "Optional margin crop applied when displaying pages. Absent or null means no crop."
         }
+      }
+    },
+    "CropInsets": {
+      "type": "object",
+      "description": "Insets as ratios (0.0-1.0) of the page's MediaBox, expressed in the page's displayed orientation (after /Rotate is applied). Each side must be >= 0; top + bottom must be < 1 and left + right must be < 1, otherwise readers treat the crop as absent.",
+      "required": ["top", "bottom", "left", "right"],
+      "additionalProperties": false,
+      "properties": {
+        "top":    { "type": "number", "minimum": 0, "maximum": 1, "description": "Inset from the displayed top edge, as a ratio of the MediaBox height." },
+        "bottom": { "type": "number", "minimum": 0, "maximum": 1, "description": "Inset from the displayed bottom edge, as a ratio of the MediaBox height." },
+        "left":   { "type": "number", "minimum": 0, "maximum": 1, "description": "Inset from the displayed left edge, as a ratio of the MediaBox width." },
+        "right":  { "type": "number", "minimum": 0, "maximum": 1, "description": "Inset from the displayed right edge, as a ratio of the MediaBox width." }
+      }
+    },
+    "CropSettings": {
+      "type": "object",
+      "description": "Non-destructive display crop. 'odd' applies to odd PDF page numbers (1-indexed), 'even' to even ones; use identical values in both for a uniform crop. The PDF file itself is never modified.",
+      "required": ["odd", "even"],
+      "additionalProperties": false,
+      "properties": {
+        "odd":  { "$ref": "#/$defs/CropInsets", "description": "Insets for odd-numbered pages (1, 3, 5, ...)." },
+        "even": { "$ref": "#/$defs/CropInsets", "description": "Insets for even-numbered pages (2, 4, 6, ...)." },
+        "excludeFirstPage": { "type": "boolean", "description": "When true, page 1 (typically the cover) is displayed uncropped and belongs to neither group. Defaults to false when omitted." }
       }
     },
     "Bookmark": {
