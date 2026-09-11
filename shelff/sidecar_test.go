@@ -840,6 +840,35 @@ func TestReadSidecarParsesDisplayCropWithoutExcludeFirstPage(t *testing.T) {
 	}
 }
 
+func TestReadSidecarParsesNullDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "display": {
+    "direction": "LTR",
+    "crop": null
+  }
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta.Display == nil {
+		t.Fatal("Display = nil, want populated")
+	}
+	if meta.Display.Crop != nil {
+		t.Fatalf("Display.Crop = %+v, want nil", meta.Display.Crop)
+	}
+}
+
 func TestWriteSidecarRoundTripsDisplayCrop(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,12 @@ func collectValidationErrors(path string, value any, schema *jsonschema.Schema, 
 	if schema == nil {
 		return
 	}
+	if branch := selectAnyOfBranch(schema, value); branch != nil {
+		schema = resolveSchema(branch, root)
+		if schema == nil {
+			return
+		}
+	}
 
 	if err := validateLocally(value, schema); err != nil {
 		appendValidationError(errs, seen, fmt.Sprintf("%s: %v", path, err))
@@ -175,6 +181,35 @@ func resolveSchema(schema *jsonschema.Schema, root *jsonschema.Schema) *jsonsche
 	}
 
 	return schema
+}
+
+// selectAnyOfBranch picks the anyOf branch matching value's nullness, so that
+// a nullable ref (anyOf: [{$ref: ...}, {type: null}]) still drills into the
+// referenced schema for non-null values. Returns nil when schema has no anyOf.
+func selectAnyOfBranch(schema *jsonschema.Schema, value any) *jsonschema.Schema {
+	if len(schema.AnyOf) == 0 {
+		return nil
+	}
+
+	if value == nil {
+		for _, branch := range schema.AnyOf {
+			if isNullSchema(branch) {
+				return branch
+			}
+		}
+		return schema.AnyOf[0]
+	}
+
+	for _, branch := range schema.AnyOf {
+		if !isNullSchema(branch) {
+			return branch
+		}
+	}
+	return schema.AnyOf[0]
+}
+
+func isNullSchema(schema *jsonschema.Schema) bool {
+	return schema.Type == "null" || slices.Contains(schema.Types, "null")
 }
 
 func appendValidationError(errs *[]string, seen map[string]struct{}, err string) {

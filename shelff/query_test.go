@@ -646,3 +646,27 @@ func TestValidateReportsInvalidDisplayCrop(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAcceptsNullDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "display": {
+    "direction": "LTR",
+    "crop": null
+  }
+}`)
+
+	errs, err := library.Validate(pdfPath)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("Validate errors = %#v, want none", errs)
+	}
+}

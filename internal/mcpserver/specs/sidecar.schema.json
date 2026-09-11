@@ -129,7 +129,10 @@
           "description": "Page layout mode. 'single' = one page at a time, 'spread' = two pages side by side, 'spread-with-cover' = spread with first page displayed alone."
         },
         "crop": {
-          "$ref": "#/$defs/CropSettings",
+          "anyOf": [
+            { "$ref": "#/$defs/CropSettings" },
+            { "type": "null" }
+          ],
           "description": "Optional margin crop applied when displaying pages. Absent or null means no crop."
         }
       }
