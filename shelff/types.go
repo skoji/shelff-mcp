@@ -1,6 +1,9 @@
 package shelff
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // SidecarMetadata represents the top-level structure of a *.pdf.meta.json file.
 type SidecarMetadata struct {
@@ -81,8 +84,42 @@ type ReadingProgress struct {
 
 // DisplaySettings controls PDF rendering preferences.
 type DisplaySettings struct {
-	Direction  Direction   `json:"direction"`
-	PageLayout *PageLayout `json:"pageLayout,omitempty"`
+	Direction  Direction     `json:"direction"`
+	PageLayout *PageLayout   `json:"pageLayout,omitempty"`
+	Crop       *CropSettings `json:"crop,omitempty"`
+}
+
+// CropSettings describes a non-destructive display crop. The PDF itself is
+// never modified. A nil CropSettings means no crop.
+type CropSettings struct {
+	Odd  CropInsets `json:"odd"`
+	Even CropInsets `json:"even"`
+	// ExcludeFirstPage leaves page 1 uncropped; nil means the schema default, false.
+	ExcludeFirstPage *bool `json:"excludeFirstPage,omitempty"`
+}
+
+// CropInsets holds per-side insets as ratios (0.0-1.0) of the page's MediaBox,
+// in the page's displayed orientation. All four sides are always serialised
+// because the schema requires them.
+type CropInsets struct {
+	Top    float64 `json:"top"`
+	Bottom float64 `json:"bottom"`
+	Left   float64 `json:"left"`
+	Right  float64 `json:"right"`
+}
+
+// Valid reports whether every side is a finite ratio in [0, 1] and the opposing
+// sides leave a non-empty region: top + bottom < 1 and left + right < 1.
+func (c CropInsets) Valid() bool {
+	for _, side := range [...]float64{c.Top, c.Bottom, c.Left, c.Right} {
+		if math.IsNaN(side) || math.IsInf(side, 0) {
+			return false
+		}
+		if side < 0 || side > 1 {
+			return false
+		}
+	}
+	return c.Top+c.Bottom < 1 && c.Left+c.Right < 1
 }
 
 // CategoryList represents .shelff/categories.json.

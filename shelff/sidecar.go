@@ -127,6 +127,14 @@ func validateSidecarMetadata(meta *SidecarMetadata) error {
 		if meta.Display.PageLayout != nil && !meta.Display.PageLayout.Valid() {
 			return fmt.Errorf("%w: pageLayout %q", ErrInvalidFieldValue, *meta.Display.PageLayout)
 		}
+		if crop := meta.Display.Crop; crop != nil {
+			if !crop.Odd.Valid() {
+				return fmt.Errorf("%w: display.crop.odd %+v", ErrInvalidFieldValue, crop.Odd)
+			}
+			if !crop.Even.Valid() {
+				return fmt.Errorf("%w: display.crop.even %+v", ErrInvalidFieldValue, crop.Even)
+			}
+		}
 	}
 	if meta.Reading != nil && meta.Reading.Status != nil {
 		if !meta.Reading.Status.Valid() {

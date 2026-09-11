@@ -83,6 +83,32 @@ Fields:
 
 This design is inspired by EPUB's `belongs-to-collection` / `group-position` metadata, simplified to a single collection without a type distinction (`series` vs `set`).
 
+#### Crop
+
+The `display.crop` field stores a non-destructive margin crop used when rendering pages. The PDF file is never modified; readers apply it to the displayed page bounds (e.g. PDFKit cropBox). Absent or `null` means no crop.
+
+```json
+"display": {
+  "direction": "LTR",
+  "pageLayout": "spread-with-cover",
+  "crop": {
+    "excludeFirstPage": true,
+    "odd":  { "top": 0.05, "bottom": 0.04, "left": 0.03, "right": 0.03 },
+    "even": { "top": 0.05, "bottom": 0.04, "left": 0.02, "right": 0.04 }
+  }
+}
+```
+
+Fields:
+- `odd` / `even` (required, CropInsets): keyed by the PDF page number parity (1-indexed; page 1 is odd). This is a physical property of the page (gutter side) and is independent of `pageLayout` and `direction`; write the same values to both for a uniform crop.
+- `excludeFirstPage` (boolean, optional, default `false`): when `true`, page 1 is displayed uncropped and belongs to neither group. It is stored explicitly rather than derived from `pageLayout` so that `crop` can be interpreted on its own.
+
+CropInsets: `top` / `bottom` / `left` / `right` are ratios (0.0-1.0) of the page MediaBox (not points, so PDFs with mixed page sizes keep working), expressed in the page's displayed orientation, i.e. after `/Rotate` is applied. Readers convert them to unrotated user space themselves.
+
+Validity: each side must be `>= 0`, `top + bottom < 1`, and `left + right < 1`. Readers must treat a violating crop as absent (safety-side) rather than failing.
+
+Round-trip note: tools that rewrite `display` must preserve `crop`.
+
 ### Category List (`.shelff/categories.json`)
 
 An ordered list of categories. Each PDF can belong to at most one category, specified by the `category` field in its sidecar. Categories must be defined in this file to appear in the UI, but a sidecar may reference a category name not yet listed here (it will be treated as uncategorized until the category is created).
@@ -104,7 +130,7 @@ All three schemas allow additional properties at the top level (`additionalPrope
 - **Use the `x-` prefix** for third-party or user-defined fields (e.g., `x-calibre-id`, `x-my-custom-field`).
 - **Top-level fields without `x-` prefix** may be introduced in future versions of this specification. Third-party tools should avoid unprefixed top-level fields to prevent conflicts.
 - **The `metadata` (Dublin Core) object** also allows additional properties. Standard Dublin Core extensions (e.g., `dcterms:` namespace) are welcome. Custom fields within `metadata` should also use the `x-` prefix.
-- **`reading` and `display` objects** do not allow additional properties in this version.
+- **`reading` and `display` objects** do not allow additional properties in this version. (`display.crop` and its nested objects are part of the specification, not extensions.)
 
 ### Round-trip Preservation
 

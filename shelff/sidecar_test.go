@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -762,4 +763,309 @@ func decodeJSONFile(t *testing.T, path string) map[string]any {
 		t.Fatalf("json.Unmarshal(%q): %v", path, err)
 	}
 	return decoded
+}
+
+func TestReadSidecarParsesDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "display": {
+    "direction": "RTL",
+    "pageLayout": "spread-with-cover",
+    "crop": {
+      "excludeFirstPage": true,
+      "odd": {"top": 0.05, "bottom": 0.04, "left": 0.03, "right": 0.02},
+      "even": {"top": 0.05, "bottom": 0.04, "left": 0.02, "right": 0.03}
+    }
+  }
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta.Display == nil || meta.Display.Crop == nil {
+		t.Fatalf("Display = %#v, want crop populated", meta.Display)
+	}
+	crop := meta.Display.Crop
+	if crop.ExcludeFirstPage == nil || !*crop.ExcludeFirstPage {
+		t.Fatalf("crop.ExcludeFirstPage = %v, want true", crop.ExcludeFirstPage)
+	}
+	wantOdd := shelff.CropInsets{Top: 0.05, Bottom: 0.04, Left: 0.03, Right: 0.02}
+	if crop.Odd != wantOdd {
+		t.Fatalf("crop.Odd = %+v, want %+v", crop.Odd, wantOdd)
+	}
+	wantEven := shelff.CropInsets{Top: 0.05, Bottom: 0.04, Left: 0.02, Right: 0.03}
+	if crop.Even != wantEven {
+		t.Fatalf("crop.Even = %+v, want %+v", crop.Even, wantEven)
+	}
+}
+
+func TestReadSidecarParsesDisplayCropWithoutExcludeFirstPage(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "display": {
+    "direction": "LTR",
+    "crop": {
+      "odd": {"top": 0, "bottom": 0, "left": 0.1, "right": 0},
+      "even": {"top": 0, "bottom": 0, "left": 0, "right": 0.1}
+    }
+  }
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta.Display == nil || meta.Display.Crop == nil {
+		t.Fatalf("Display = %#v, want crop populated", meta.Display)
+	}
+	if meta.Display.Crop.ExcludeFirstPage != nil {
+		t.Fatalf("crop.ExcludeFirstPage = %v, want nil when omitted", *meta.Display.Crop.ExcludeFirstPage)
+	}
+}
+
+func TestReadSidecarParsesNullDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "display": {
+    "direction": "LTR",
+    "crop": null
+  }
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta.Display == nil {
+		t.Fatal("Display = nil, want populated")
+	}
+	if meta.Display.Crop != nil {
+		t.Fatalf("Display.Crop = %+v, want nil", meta.Display.Crop)
+	}
+}
+
+func TestWriteSidecarRoundTripsDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata:      shelff.DublinCore{Title: "Book"},
+		Display: &shelff.DisplaySettings{
+			Direction: shelff.DirectionRTL,
+			Crop: &shelff.CropSettings{
+				Odd:  shelff.CropInsets{Top: 0.05, Bottom: 0.04, Left: 0.03, Right: 0.02},
+				Even: shelff.CropInsets{Top: 0.05, Bottom: 0.04, Left: 0.02, Right: 0.03},
+			},
+		},
+	}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	decoded := decodeJSONFile(t, shelff.SidecarPath(pdfPath))
+	display, ok := decoded["display"].(map[string]any)
+	if !ok {
+		t.Fatalf("display = %#v, want JSON object", decoded["display"])
+	}
+	crop, ok := display["crop"].(map[string]any)
+	if !ok {
+		t.Fatalf("display.crop = %#v, want JSON object", display["crop"])
+	}
+	if _, present := crop["excludeFirstPage"]; present {
+		t.Fatalf("display.crop = %#v, want no excludeFirstPage key when nil", crop)
+	}
+	odd, ok := crop["odd"].(map[string]any)
+	if !ok {
+		t.Fatalf("display.crop.odd = %#v, want JSON object", crop["odd"])
+	}
+	for _, side := range []string{"top", "bottom", "left", "right"} {
+		if _, present := odd[side]; !present {
+			t.Fatalf("display.crop.odd = %#v, want %q always written", odd, side)
+		}
+	}
+
+	readBack, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if readBack.Display == nil || readBack.Display.Crop == nil {
+		t.Fatalf("readBack.Display = %#v, want crop populated", readBack.Display)
+	}
+	if readBack.Display.Crop.Odd != meta.Display.Crop.Odd {
+		t.Fatalf("readBack crop.Odd = %+v, want %+v", readBack.Display.Crop.Odd, meta.Display.Crop.Odd)
+	}
+	if readBack.Display.Crop.Even != meta.Display.Crop.Even {
+		t.Fatalf("readBack crop.Even = %+v, want %+v", readBack.Display.Crop.Even, meta.Display.Crop.Even)
+	}
+}
+
+func TestWriteSidecarWritesExplicitExcludeFirstPageFalse(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	excludeFirstPage := false
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata:      shelff.DublinCore{Title: "Book"},
+		Display: &shelff.DisplaySettings{
+			Direction: shelff.DirectionLTR,
+			Crop: &shelff.CropSettings{
+				Odd:              shelff.CropInsets{Left: 0.1},
+				Even:             shelff.CropInsets{Right: 0.1},
+				ExcludeFirstPage: &excludeFirstPage,
+			},
+		},
+	}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	readBack, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if readBack.Display == nil || readBack.Display.Crop == nil {
+		t.Fatalf("readBack.Display = %#v, want crop populated", readBack.Display)
+	}
+	if readBack.Display.Crop.ExcludeFirstPage == nil || *readBack.Display.Crop.ExcludeFirstPage {
+		t.Fatalf("readBack crop.ExcludeFirstPage = %v, want explicit false", readBack.Display.Crop.ExcludeFirstPage)
+	}
+}
+
+func TestWriteSidecarOmitsCropWhenNil(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata:      shelff.DublinCore{Title: "Book"},
+		Display:       &shelff.DisplaySettings{Direction: shelff.DirectionLTR},
+	}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+	if data := string(readFile(t, shelff.SidecarPath(pdfPath))); strings.Contains(data, `"crop"`) {
+		t.Fatalf("expected no crop key, got %s", data)
+	}
+}
+
+func TestWriteSidecarRejectsInvalidCropInsets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		crop shelff.CropSettings
+	}{
+		{
+			name: "negative odd inset",
+			crop: shelff.CropSettings{Odd: shelff.CropInsets{Top: -0.1}},
+		},
+		{
+			name: "negative even inset",
+			crop: shelff.CropSettings{Even: shelff.CropInsets{Left: -0.1}},
+		},
+		{
+			name: "odd vertical sum reaches one",
+			crop: shelff.CropSettings{Odd: shelff.CropInsets{Top: 0.6, Bottom: 0.4}},
+		},
+		{
+			name: "even horizontal sum reaches one",
+			crop: shelff.CropSettings{Even: shelff.CropInsets{Left: 0.5, Right: 0.5}},
+		},
+		{
+			name: "inset above one",
+			crop: shelff.CropSettings{Odd: shelff.CropInsets{Right: 1.5}},
+		},
+		{
+			name: "not a number",
+			crop: shelff.CropSettings{Odd: shelff.CropInsets{Top: math.NaN()}},
+		},
+		{
+			name: "infinite",
+			crop: shelff.CropSettings{Even: shelff.CropInsets{Bottom: math.Inf(1)}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pdfPath := writeTestPDF(t, t.TempDir(), "book.pdf")
+			crop := tt.crop
+			meta := &shelff.SidecarMetadata{
+				SchemaVersion: shelff.SchemaVersion,
+				Metadata:      shelff.DublinCore{Title: "Book"},
+				Display: &shelff.DisplaySettings{
+					Direction: shelff.DirectionLTR,
+					Crop:      &crop,
+				},
+			}
+			err := shelff.WriteSidecar(pdfPath, meta)
+			if !errors.Is(err, shelff.ErrInvalidFieldValue) {
+				t.Fatalf("WriteSidecar error = %v, want ErrInvalidFieldValue", err)
+			}
+			if _, statErr := os.Stat(shelff.SidecarPath(pdfPath)); !os.IsNotExist(statErr) {
+				t.Fatalf("sidecar was written despite invalid crop: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestReadSidecarAcceptsOutOfRangeCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {
+    "dc:title": "Book"
+  },
+  "display": {
+    "direction": "LTR",
+    "crop": {
+      "odd": {"top": 0.9, "bottom": 0.9, "left": 0, "right": 0},
+      "even": {"top": -1, "bottom": 0, "left": 0, "right": 0}
+    }
+  }
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if meta.Display == nil || meta.Display.Crop == nil {
+		t.Fatalf("Display = %#v, want crop populated even when out of range", meta.Display)
+	}
+	if meta.Display.Crop.Odd.Top != 0.9 {
+		t.Fatalf("crop.Odd.Top = %v, want 0.9 passed through", meta.Display.Crop.Odd.Top)
+	}
 }

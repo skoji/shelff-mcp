@@ -1234,3 +1234,110 @@ func writeRawJSONFile(t *testing.T, path string, contents string) {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }
+
+func TestWriteMetadataPreservesDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{"schemaVersion":1,"metadata":{"dc:title":"book"},"display":{"direction":"RTL","crop":{"excludeFirstPage":true,"odd":{"top":0.05,"bottom":0.04,"left":0.03,"right":0.02},"even":{"top":0.05,"bottom":0.04,"left":0.02,"right":0.03}}}}`)
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "write_metadata",
+		Arguments: map[string]any{
+			"pdfPath": "book.pdf",
+			"metadata": map[string]any{
+				"metadata": map[string]any{"dc:title": "renamed"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_metadata error = %v", err)
+	}
+	var out readMetadataOutput
+	decodeStructuredContent(t, result, &out)
+	if out.Metadata == nil || out.Metadata.Display == nil || out.Metadata.Display.Crop == nil {
+		t.Fatalf("write_metadata output = %#v, want display.crop preserved", out)
+	}
+	crop := out.Metadata.Display.Crop
+	if crop.Odd != (shelff.CropInsets{Top: 0.05, Bottom: 0.04, Left: 0.03, Right: 0.02}) {
+		t.Fatalf("crop.Odd = %+v, want preserved", crop.Odd)
+	}
+	if crop.ExcludeFirstPage == nil || !*crop.ExcludeFirstPage {
+		t.Fatalf("crop.ExcludeFirstPage = %v, want true preserved", crop.ExcludeFirstPage)
+	}
+
+	rawDisplay, ok := readJSONFile(t, shelff.SidecarPath(pdfPath))["display"].(map[string]any)
+	if !ok {
+		t.Fatal("raw sidecar has no display object")
+	}
+	if _, present := rawDisplay["crop"]; !present {
+		t.Fatalf("raw display = %#v, want crop key on disk", rawDisplay)
+	}
+
+	readResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_metadata",
+		Arguments: map[string]any{"pdfPath": "book.pdf"},
+	})
+	if err != nil {
+		t.Fatalf("read_metadata error = %v", err)
+	}
+	var readOut readMetadataOutput
+	decodeStructuredContent(t, readResult, &readOut)
+	if readOut.Metadata == nil || readOut.Metadata.Display == nil || readOut.Metadata.Display.Crop == nil {
+		t.Fatalf("read_metadata output = %#v, want display.crop", readOut)
+	}
+
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "write_metadata",
+		Arguments: map[string]any{
+			"pdfPath": "book.pdf",
+			"metadata": map[string]any{
+				"display": map[string]any{"crop": nil},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_metadata crop delete error = %v", err)
+	}
+	out = readMetadataOutput{}
+	decodeStructuredContent(t, result, &out)
+	if out.Metadata == nil || out.Metadata.Display == nil {
+		t.Fatalf("write_metadata crop delete output = %#v, want display kept", out)
+	}
+	if out.Metadata.Display.Direction != shelff.DirectionRTL {
+		t.Fatalf("direction = %q, want %q", out.Metadata.Display.Direction, shelff.DirectionRTL)
+	}
+	if out.Metadata.Display.Crop != nil {
+		t.Fatalf("crop = %+v, want nil after null patch", *out.Metadata.Display.Crop)
+	}
+
+	assertToolErrorContains(t, session, "write_metadata", map[string]any{
+		"pdfPath": "book.pdf",
+		"metadata": map[string]any{
+			"display": map[string]any{
+				"crop": map[string]any{
+					"odd":  map[string]any{"top": 0.6, "bottom": 0.6, "left": 0, "right": 0},
+					"even": map[string]any{"top": 0, "bottom": 0, "left": 0, "right": 0},
+				},
+			},
+		},
+	}, shelff.ErrInvalidFieldValue.Error())
+
+	validateResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "validate_sidecar",
+		Arguments: map[string]any{"pdfPath": "book.pdf"},
+	})
+	if err != nil {
+		t.Fatalf("validate_sidecar error = %v", err)
+	}
+	var validateOut validateSidecarOutput
+	decodeStructuredContent(t, validateResult, &validateOut)
+	if len(validateOut.Errors) != 0 {
+		t.Fatalf("validate_sidecar errors = %#v, want none", validateOut.Errors)
+	}
+}

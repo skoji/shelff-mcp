@@ -587,3 +587,86 @@ func mustParseTime(t *testing.T, value string) time.Time {
 	}
 	return parsed
 }
+
+func TestValidateAcceptsDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "display": {
+    "direction": "RTL",
+    "pageLayout": "spread-with-cover",
+    "crop": {
+      "excludeFirstPage": true,
+      "odd": {"top": 0.05, "bottom": 0.04, "left": 0.03, "right": 0.02},
+      "even": {"top": 0.05, "bottom": 0.04, "left": 0.02, "right": 0.03}
+    }
+  }
+}`)
+
+	errs, err := library.Validate(pdfPath)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("Validate errors = %#v, want none", errs)
+	}
+}
+
+func TestValidateReportsInvalidDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "display": {
+    "direction": "LTR",
+    "crop": {
+      "odd": {"top": -0.5, "bottom": 0, "left": 0, "right": 0},
+      "even": {"top": 0, "bottom": 0, "left": 0}
+    }
+  }
+}`)
+
+	errs, err := library.Validate(pdfPath)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	joined := strings.Join(errs, "\n")
+	for _, needle := range []string{"display.crop.odd", "minimum:", "display.crop.even", "missing properties"} {
+		if !strings.Contains(joined, needle) {
+			t.Fatalf("validation errors %q do not contain %q", joined, needle)
+		}
+	}
+}
+
+func TestValidateAcceptsNullDisplayCrop(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "display": {
+    "direction": "LTR",
+    "crop": null
+  }
+}`)
+
+	errs, err := library.Validate(pdfPath)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("Validate errors = %#v, want none", errs)
+	}
+}
