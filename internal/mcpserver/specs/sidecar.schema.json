@@ -38,6 +38,10 @@
     "collection": {
       "$ref": "#/$defs/Collection",
       "description": "The collection (series or magazine) this book belongs to. A book can belong to at most one collection."
+    },
+    "archive": {
+      "$ref": "#/$defs/ArchiveState",
+      "description": "Archive state and when it last changed. Absent means not archived. Independent of reading.status."
     }
   },
   "$defs": {
@@ -190,6 +194,23 @@
         "position": {
           "type": "number",
           "description": "The position of this book within the collection. Fractional values are allowed (e.g. 0.5 for a special half-volume). Omit for collections where ordering is not by volume number (e.g. magazines ordered by date)."
+        }
+      }
+    },
+    "ArchiveState": {
+      "type": "object",
+      "description": "Whether the book is archived and when that state last changed. Unarchiving keeps the object with isArchived set to false, so that a merge can tell a later unarchive from never having been archived.",
+      "required": ["isArchived", "changedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "isArchived": {
+          "type": "boolean",
+          "description": "true if the book is archived."
+        },
+        "changedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When isArchived last changed. ISO 8601 date-time in UTC."
         }
       }
     }

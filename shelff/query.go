@@ -3,6 +3,7 @@ package shelff
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -189,6 +190,10 @@ func (l *Library) Stats() (*LibraryStats, error) {
 			status = string(*meta.Reading.Status)
 		}
 		stats.StatusCounts[status]++
+
+		if meta.Archive != nil && meta.Archive.IsArchived {
+			stats.Archived++
+		}
 	}
 
 	return stats, nil
@@ -434,19 +439,45 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 
 	usedCategories := make(map[string]struct{})
 	usedTags := make(map[string]struct{})
+	invalidArchives := make([]SidecarIssue, 0)
 	withSidecar := 0
 	for _, book := range books {
 		if !book.HasSidecar {
 			continue
 		}
-		meta, err := ReadSidecar(book.PDFPath)
+		sidecarPath := SidecarPath(book.PDFPath)
+		data, err := os.ReadFile(sidecarPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		raw, err := jsonBytesToMap(data)
 		if err != nil {
 			return nil, err
 		}
-		if meta == nil {
+		withSidecar++
+
+		archiveErrors, err := validateSidecarProperty(raw, "archive")
+		if err != nil {
+			return nil, err
+		}
+		if len(archiveErrors) > 0 {
+			invalidArchives = append(invalidArchives, SidecarIssue{
+				SidecarPath: l.relativeLibraryPath(sidecarPath),
+				Errors:      archiveErrors,
+			})
+		}
+
+		meta, err := ParseSidecarJSON(data)
+		if err != nil {
+			if len(archiveErrors) == 0 || !readableWithoutArchive(raw) {
+				return nil, err
+			}
+			// The archive issue is already reported; keep checking the rest.
 			continue
 		}
-		withSidecar++
 		if meta.Category != nil {
 			usedCategories[*meta.Category] = struct{}{}
 		}
@@ -487,24 +518,39 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 	}
 	orphanedPaths := make([]string, len(orphaned))
 	for i, o := range orphaned {
-		rel, err := filepath.Rel(l.root, o.SidecarPath)
-		if err != nil {
-			orphanedPaths[i] = o.SidecarPath
-		} else {
-			orphanedPaths[i] = rel
-		}
+		orphanedPaths[i] = l.relativeLibraryPath(o.SidecarPath)
 	}
 
 	return &CheckLibraryResult{
 		DotShelff:        dotShelff,
 		Integrity:        integrity,
 		OrphanedSidecars: orphanedPaths,
+		InvalidArchives:  invalidArchives,
 		Summary: LibrarySummary{
 			TotalPDFs:      len(books),
 			WithSidecar:    withSidecar,
 			WithoutSidecar: len(books) - withSidecar,
 		},
 	}, nil
+}
+
+// readableWithoutArchive reports whether a decoded sidecar parses once its
+// archive is removed, i.e. whether archive alone made the typed read fail.
+func readableWithoutArchive(raw map[string]any) bool {
+	withoutArchive := maps.Clone(raw)
+	delete(withoutArchive, "archive")
+	_, err := mapToSidecar(withoutArchive)
+	return err == nil
+}
+
+// relativeLibraryPath returns path relative to the library root, or path
+// unchanged when it cannot be made relative.
+func (l *Library) relativeLibraryPath(path string) string {
+	rel, err := filepath.Rel(l.root, path)
+	if err != nil {
+		return path
+	}
+	return rel
 }
 
 // sortedDiff returns sorted keys in a that are not in b.

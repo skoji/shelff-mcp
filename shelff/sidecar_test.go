@@ -1069,3 +1069,93 @@ func TestReadSidecarAcceptsOutOfRangeCrop(t *testing.T) {
 		t.Fatalf("crop.Odd.Top = %v, want 0.9 passed through", meta.Display.Crop.Odd.Top)
 	}
 }
+
+func TestReadSidecarParsesArchive(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	const body = `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "archive": {"isArchived": true, "changedAt": "2026-10-27T01:02:03Z"}
+}`
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(body))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	want := shelff.ArchiveState{
+		IsArchived: true,
+		ChangedAt:  time.Date(2026, 10, 27, 1, 2, 3, 0, time.UTC),
+	}
+	if meta.Archive == nil {
+		t.Fatal("Archive = nil, want populated")
+	}
+	if meta.Archive.IsArchived != want.IsArchived || !meta.Archive.ChangedAt.Equal(want.ChangedAt) {
+		t.Fatalf("Archive = %+v, want %+v", *meta.Archive, want)
+	}
+}
+
+func TestWriteSidecarRoundTripsArchiveInUTC(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	meta := &shelff.SidecarMetadata{
+		SchemaVersion: shelff.SchemaVersion,
+		Metadata:      shelff.DublinCore{Title: "Book"},
+		Archive: &shelff.ArchiveState{
+			IsArchived: false,
+			ChangedAt:  time.Date(2026, 10, 27, 10, 2, 3, 0, time.FixedZone("JST", 9*60*60)),
+		},
+	}
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+
+	decoded := decodeJSONFile(t, shelff.SidecarPath(pdfPath))
+	archive, ok := decoded["archive"].(map[string]any)
+	if !ok {
+		t.Fatalf("archive = %#v, want JSON object", decoded["archive"])
+	}
+	if archive["isArchived"] != false {
+		t.Fatalf("archive.isArchived = %#v, want false written explicitly", archive["isArchived"])
+	}
+	if archive["changedAt"] != "2026-10-27T01:02:03Z" {
+		t.Fatalf("archive.changedAt = %#v, want UTC 2026-10-27T01:02:03Z", archive["changedAt"])
+	}
+
+	readBack, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	if readBack.Archive == nil || readBack.Archive.IsArchived {
+		t.Fatalf("readBack.Archive = %#v, want isArchived=false", readBack.Archive)
+	}
+}
+
+func TestWriteSidecarOmitsArchiveWhenNil(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeFile(t, shelff.SidecarPath(pdfPath), []byte(`{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "archive": {"isArchived": true, "changedAt": "2026-10-27T01:02:03Z"}
+}`))
+
+	meta, err := shelff.ReadSidecar(pdfPath)
+	if err != nil {
+		t.Fatalf("ReadSidecar returned error: %v", err)
+	}
+	meta.Archive = nil
+	if err := shelff.WriteSidecar(pdfPath, meta); err != nil {
+		t.Fatalf("WriteSidecar returned error: %v", err)
+	}
+	if data := string(readFile(t, shelff.SidecarPath(pdfPath))); strings.Contains(data, `"archive"`) {
+		t.Fatalf("expected archive key to be removed as a known field, got %s", data)
+	}
+}

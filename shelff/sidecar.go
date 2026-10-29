@@ -17,6 +17,7 @@ var (
 		"category":      {},
 		"tags":          {},
 		"collection":    {},
+		"archive":       {},
 	}
 )
 
@@ -157,6 +158,11 @@ func normalizeSidecarMetadata(meta *SidecarMetadata) *SidecarMetadata {
 			readingCopy.FinishedAt = &finishedAt
 		}
 		copyMeta.Reading = &readingCopy
+	}
+	if meta.Archive != nil {
+		archiveCopy := *meta.Archive
+		archiveCopy.ChangedAt = archiveCopy.ChangedAt.UTC()
+		copyMeta.Archive = &archiveCopy
 	}
 	return &copyMeta
 }

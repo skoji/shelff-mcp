@@ -14,8 +14,19 @@ type SidecarMetadata struct {
 	Category      *string          `json:"category,omitempty"`
 	Tags          []string         `json:"tags,omitempty"`
 	Collection    *Collection      `json:"collection,omitempty"`
+	Archive       *ArchiveState    `json:"archive,omitempty"`
 
 	rawJSON []byte
+}
+
+// ArchiveState records whether a book is archived and when that state last
+// changed. A nil ArchiveState means the book has never been archived.
+// Unarchiving keeps the object with IsArchived set to false so that merges can
+// tell a later unarchive from never having been archived.
+// It is independent of ReadingProgress.Status.
+type ArchiveState struct {
+	IsArchived bool      `json:"isArchived"`
+	ChangedAt  time.Time `json:"changedAt"`
 }
 
 // Collection represents a series or magazine a book belongs to.
@@ -166,6 +177,8 @@ type LibraryStats struct {
 	CategoryCounts   map[string]int
 	TagCounts        map[string]int
 	StatusCounts     map[string]int
+	// Archived counts books whose archive.isArchived is true.
+	Archived int
 }
 
 // CheckLibraryResult holds the result of a library diagnostic check.
@@ -173,7 +186,16 @@ type CheckLibraryResult struct {
 	DotShelff        DotShelffStatus `json:"dotShelff"`
 	Integrity        IntegrityReport `json:"integrity"`
 	OrphanedSidecars []string        `json:"orphanedSidecars"`
+	InvalidArchives  []SidecarIssue  `json:"invalidArchives"`
 	Summary          LibrarySummary  `json:"summary"`
+}
+
+// SidecarIssue lists schema violations found in one sidecar.
+type SidecarIssue struct {
+	// SidecarPath is relative to the library root.
+	SidecarPath string `json:"sidecarPath"`
+	// Errors are schema validation messages, each prefixed with its JSON path.
+	Errors []string `json:"errors"`
 }
 
 // DotShelffStatus reports existence of the .shelff directory and config files.

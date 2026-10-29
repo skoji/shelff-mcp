@@ -191,7 +191,7 @@ func (s *Server) registerTools() {
 	}, s.createSidecar)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "write_metadata",
-		Description: "Apply a partial metadata update for a PDF, creating a sidecar first if needed.",
+		Description: "Apply a partial metadata update for a PDF, creating a sidecar first if needed. Archive or unarchive with {\"archive\": {\"isArchived\": true}} (or false); changedAt is stamped with the current UTC time only when the state actually changes. An archive object with an explicit changedAt replaces the stored one only if it is not older.",
 	}, s.writeMetadata)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "delete_sidecar",
@@ -223,7 +223,7 @@ func (s *Server) registerTools() {
 	}, s.libraryStats)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "check_library",
-		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, and book counts.",
+		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, sidecars with an invalid archive object, and book counts.",
 	}, s.checkLibrary)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "collect_all_tags",
@@ -297,7 +297,7 @@ func (s *Server) readMetadata(_ context.Context, _ *mcp.CallToolRequest, in pdfP
 	}
 	return nil, readMetadataOutput{
 		HasSidecar: hasSidecar,
-		Metadata: meta,
+		Metadata:   meta,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package shelff
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 )
 
@@ -60,6 +61,17 @@ func WriteMetadata(pdfPath string, partial map[string]any) (*SidecarMetadata, er
 		partial = map[string]any{}
 	}
 
+	var archive *archivePatch
+	if raw, ok := partial["archive"]; ok && raw != nil {
+		parsed, err := parseArchivePatch(raw)
+		if err != nil {
+			return nil, err
+		}
+		archive = &parsed
+		partial = maps.Clone(partial)
+		delete(partial, "archive")
+	}
+
 	existing, err := ReadSidecar(pdfPath)
 	if err != nil {
 		return nil, err
@@ -76,6 +88,11 @@ func WriteMetadata(pdfPath string, partial map[string]any) (*SidecarMetadata, er
 		return nil, err
 	}
 	merged := mergeJSONObject(currentMap, partial)
+	if archive != nil {
+		if resolved := archive.resolve(existing.Archive); resolved != nil {
+			merged["archive"] = resolved
+		}
+	}
 	merged = normalizeMergedSidecar(currentMap, merged)
 
 	next, err := mapToSidecar(merged)

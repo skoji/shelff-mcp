@@ -87,9 +87,20 @@ type SidecarMetadata struct {
     Display       *DisplaySettings  `json:"display,omitempty"`
     Category      *string           `json:"category,omitempty"`
     Tags          []string          `json:"tags,omitempty"`
+    Collection    *Collection       `json:"collection,omitempty"`
+    Archive       *ArchiveState     `json:"archive,omitempty"`
 
     // unexported: holds the raw JSON bytes read from disk, used for round-trip preservation.
     rawJSON []byte
+}
+
+// ArchiveState records whether a book is archived and when that state last changed.
+// nil means never archived. Unarchiving keeps the object with IsArchived=false so that
+// a merge can tell a later unarchive from never having been archived.
+// Independent of ReadingProgress.Status.
+type ArchiveState struct {
+    IsArchived bool      `json:"isArchived"`
+    ChangedAt  time.Time `json:"changedAt"`  // ISO 8601 UTC
 }
 
 // DublinCore holds Dublin Core metadata fields.
@@ -170,6 +181,22 @@ type LibraryStats struct {
     CategoryCounts    map[string]int  // category name → count of PDFs
     TagCounts         map[string]int  // tag name → count of PDFs
     StatusCounts      map[string]int  // reading status → count of PDFs ("unread"/"reading"/"finished"/""(no reading data))
+    Archived          int             // count of PDFs whose archive.isArchived is true
+}
+
+// CheckLibraryResult holds the result of a library diagnostic check (check_library).
+type CheckLibraryResult struct {
+    DotShelff        DotShelffStatus `json:"dotShelff"`
+    Integrity        IntegrityReport `json:"integrity"`         // undefined/unused categories and tags
+    OrphanedSidecars []string        `json:"orphanedSidecars"`  // relative to the library root
+    InvalidArchives  []SidecarIssue  `json:"invalidArchives"`   // sidecars whose archive object violates the schema
+    Summary          LibrarySummary  `json:"summary"`
+}
+
+// SidecarIssue lists schema violations found in one sidecar.
+type SidecarIssue struct {
+    SidecarPath string   `json:"sidecarPath"`  // relative to the library root
+    Errors      []string `json:"errors"`       // e.g. "$.archive.changedAt: invalid date-time \"yesterday\""
 }
 ```
 
@@ -418,7 +445,13 @@ func (l *Library) Stats() (*LibraryStats, error)
 // CollectAllTags scans all sidecar files and returns the union of all tags.
 // This is the canonical tag set — tags.json only defines display order.
 func (l *Library) CollectAllTags() ([]string, error)
+
+// CheckLibrary runs diagnostic checks: config file presence, category/tag
+// integrity, orphaned sidecars, invalid archive objects, and book counts.
+func (l *Library) CheckLibrary() (*CheckLibraryResult, error)
 ```
+
+`CheckLibrary` validates each sidecar's `archive` subtree against the embedded schema (required `isArchived`/`changedAt`, `date-time` format, no additional properties) and lists violations in `invalidArchives`. A sidecar whose typed read fails because of its `archive` (e.g. an unparseable `changedAt`) is still counted in `summary.withSidecar` and reported, but is skipped for category/tag integrity instead of failing the whole check. Other unreadable sidecars still make the check fail.
 
 ## 5. Behavior Specifications
 
@@ -458,6 +491,8 @@ If any value is invalid, `WriteSidecar` returns `ErrInvalidFieldValue` and does 
 
 `category` and `dc:date` are **not** validated.
 
+`archive` needs no extra check in `WriteSidecar`: the typed `ArchiveState` always serializes both required fields, and `ChangedAt` is normalized to UTC on write. Untyped `archive` input to `WriteMetadata` is validated as described in 7.4.
+
 ### 5.4 Round-trip Preservation
 
 This is a **critical requirement**. Implementations must not discard unknown **top-level** fields when reading and writing sidecar files.
@@ -470,11 +505,11 @@ This is a **critical requirement**. Implementations must not discard unknown **t
    b. If `rawJSON` is non-nil, unmarshal it to `map[string]any` (the original).
    c. Copy unknown top-level keys from the original into the new map.
    d. Do **not** preserve unknown keys within `metadata`; when `metadata` is rewritten, only the known Dublin Core keys represented by `DublinCore` are emitted.
-   e. For optional top-level keys (`reading`, `display`, `category`, `tags`): if the typed struct has them as nil/zero, do NOT copy old values from the original. Explicit nil means "removed".
+   e. For optional top-level keys (`reading`, `display`, `category`, `tags`, `collection`, `archive`): if the typed struct has them as nil/zero, do NOT copy old values from the original. Explicit nil means "removed".
    f. Serialize the merged map with `json.MarshalIndent` (pretty-printed, sorted keys).
 
 **Known top-level keys** (anything else is unknown and must be preserved):
-`schemaVersion`, `metadata`, `reading`, `display`, `category`, `tags`
+`schemaVersion`, `metadata`, `reading`, `display`, `category`, `tags`, `collection`, `archive`
 
 **Known metadata keys** (anything else within `metadata` is rewritten away):
 `dc:title`, `dc:creator`, `dc:date`, `dc:publisher`, `dc:language`, `dc:subject`, `dc:identifier`
@@ -638,6 +673,13 @@ SHELFF_ROOT=/path/to/shelff/Documents shelff-mcp
 The MCP `write_metadata` tool accepts a **partial JSON object**. Only the fields present in the input are updated; absent fields are left unchanged.
 
 The create-or-merge logic is implemented in `shelff.WriteMetadata`, so the MCP handler is a thin wrapper that resolves the path and delegates to the library function.
+
+Objects are deep-merged and `null` deletes a key, except for `archive`, which follows the schema's merge rule instead:
+
+- `archive` must be an object with a boolean `isArchived` and, optionally, a `changedAt` RFC 3339 date-time string; any other key or type is rejected with `ErrInvalidFieldValue` before anything is written.
+- Without `changedAt` (the normal archive/unarchive request): if there is no stored `archive` or its `isArchived` differs, the object becomes `{isArchived, changedAt: now}` with the current UTC time at second precision. Re-sending the stored state keeps the stored object, so `changedAt` does not advance, unless the stored object lacks `changedAt` (a schema violation), in which case it is stamped with the current time to repair it.
+- With `changedAt`: the input replaces the stored object only if its `changedAt` is not older than the stored one (or nothing is stored); otherwise the stored object is kept. This is the "newer `changedAt` wins" rule used when merging conflicting copies.
+- `archive: null` removes the object, like any other key. Unarchiving should send `isArchived: false` instead so that the state change is recorded.
 
 ### 7.5 Tool Input/Output Format
 

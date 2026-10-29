@@ -44,7 +44,13 @@ func (l *Library) Validate(pdfPath string) ([]string, error) {
 	if err != nil {
 		return []string{fmt.Sprintf("invalid JSON: %v", err)}, nil
 	}
-	value = normalizeJSONValue(value).(map[string]any)
+	return validateSidecarValue(value)
+}
+
+// validateSidecarValue validates a decoded sidecar JSON object (as returned by
+// jsonBytesToMap) against the schema.
+func validateSidecarValue(value map[string]any) ([]string, error) {
+	normalized := normalizeJSONValue(value).(map[string]any)
 
 	schema, err := loadSidecarSchema()
 	if err != nil {
@@ -53,7 +59,30 @@ func (l *Library) Validate(pdfPath string) ([]string, error) {
 
 	var validationErrors []string
 	seen := make(map[string]struct{})
-	collectValidationErrors("$", value, schema, schema, &validationErrors, seen)
+	collectValidationErrors("$", normalized, schema, schema, &validationErrors, seen)
+	return validationErrors, nil
+}
+
+// validateSidecarProperty validates only the named top-level property of a
+// decoded sidecar JSON object. It returns nil when the property is absent.
+func validateSidecarProperty(value map[string]any, key string) ([]string, error) {
+	child, ok := value[key]
+	if !ok {
+		return nil, nil
+	}
+
+	schema, err := loadSidecarSchema()
+	if err != nil {
+		return nil, err
+	}
+	propertySchema, ok := schema.Properties[key]
+	if !ok {
+		return nil, fmt.Errorf("sidecar schema has no top-level property %q", key)
+	}
+
+	var validationErrors []string
+	seen := make(map[string]struct{})
+	collectValidationErrors(joinJSONPath("$", key), normalizeJSONValue(child), propertySchema, schema, &validationErrors, seen)
 	return validationErrors, nil
 }
 
