@@ -525,7 +525,7 @@ func (s *Server) queryBooks(_ context.Context, _ *mcp.CallToolRequest, in queryB
 
 	total := len(result.Books)
 	start := min(offset, total)
-	end := min(start+limit, total)
+	end := start + min(limit, total-start)
 	page := result.Books[start:end]
 
 	out := queryBooksOutput{
