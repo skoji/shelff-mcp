@@ -21,6 +21,8 @@ var (
 	ErrInvalidFieldValue     = errors.New("invalid field value")
 	ErrPathOutsideRoot       = errors.New("path resolves outside the library root")
 	ErrDirectoryNotEmpty     = errors.New("directory is not empty")
+	ErrInvalidTagMatch       = errors.New(`tagMatch must be "any" or "all"`)
+	ErrInvalidStatusFilter   = errors.New(`status must be "unread", "reading", "finished", or ""`)
 )
 
 // RollbackError is returned when an operation and its rollback both fail.

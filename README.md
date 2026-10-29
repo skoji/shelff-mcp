@@ -89,7 +89,7 @@ Once configured, ask your AI agent things like:
 
 ### Claude and large scan results
 
-When using Claude, `scan_books` results may be truncated if your library is large. Use the `directory`, `limit`, and `offset` parameters to paginate through results, or scan specific subdirectories.
+When using Claude, `scan_books` results may be truncated if your library is large. Use the `directory`, `limit`, and `offset` parameters to paginate through results, or scan specific subdirectories. To narrow books down by sidecar contents (category, tags, reading status, collection, archive state), use `query_books` instead.
 
 ### Root path rules
 
@@ -107,6 +107,7 @@ When using Claude, `scan_books` results may be truncated if your library is larg
 | `get_specification` | Retrieve the shelff spec (overview, sidecar/categories/tags schema) |
 | `read_metadata` | Read metadata for a PDF (returns minimal metadata even without sidecar) |
 | `scan_books` | List books with pagination and directory filtering |
+| `query_books` | Search books with sidecars by category, tags, reading status, collection, or archive state, returning a compact summary of each match |
 | `find_orphaned_sidecars` | Find sidecar files with no matching PDF |
 | `validate_sidecar` | Validate a sidecar against the schema |
 | `library_stats` | Get library statistics |

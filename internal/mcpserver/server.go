@@ -3,12 +3,14 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/skoji/shelff-mcp/shelff"
@@ -39,6 +41,19 @@ type scanBooksInput struct {
 	Directory *string `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
 	Limit     *int    `json:"limit,omitempty" jsonschema:"Maximum number of books to return. Defaults to 100."`
 	Offset    *int    `json:"offset,omitempty" jsonschema:"Number of filtered books to skip before returning results. Defaults to 0."`
+}
+
+type queryBooksInput struct {
+	Directory  *string               `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
+	Recursive  *bool                 `json:"recursive,omitempty" jsonschema:"Whether to search subdirectories recursively. Defaults to true."`
+	Category   *string               `json:"category,omitempty" jsonschema:"Exact, case-sensitive category match. An empty string means unset: it matches books with no category (missing or empty)."`
+	Tags       *[]string             `json:"tags,omitempty" jsonschema:"Exact, case-sensitive tags to match, combined according to tagMatch. An empty array means unset: it matches books whose tags are missing or empty."`
+	TagMatch   string                `json:"tagMatch,omitempty" jsonschema:"How multiple tags are combined: \"any\" (default) matches books with at least one of the tags, \"all\" matches books with every tag."`
+	Status     *shelff.ReadingStatus `json:"status,omitempty" jsonschema:"reading.status to match: \"unread\", \"reading\", or \"finished\". An empty string means unset: it matches books without reading.status, including books with no reading block. \"unread\" does not include books whose status is unset."`
+	Collection *string               `json:"collection,omitempty" jsonschema:"Exact, case-sensitive collection.title match. An empty string means unset: it matches books with no collection (missing, or with an empty title)."`
+	Archived   *bool                 `json:"archived,omitempty" jsonschema:"archive.isArchived to match. false also matches books with no archive block. Omit to include both archived and unarchived books."`
+	Limit      *int                  `json:"limit,omitempty" jsonschema:"Maximum number of books to return. Defaults to 100."`
+	Offset     *int                  `json:"offset,omitempty" jsonschema:"Number of matching books to skip before returning results. Defaults to 0."`
 }
 
 type writeMetadataInput struct {
@@ -108,6 +123,15 @@ type bookEntryOutput struct {
 	HasSidecar  bool    `json:"hasSidecar"`
 }
 
+type queryBooksOutput struct {
+	Books    []shelff.BookSummary `json:"books"`
+	Total    int                  `json:"total"`
+	Offset   int                  `json:"offset"`
+	Limit    int                  `json:"limit"`
+	HasMore  bool                 `json:"hasMore"`
+	Warnings []string             `json:"warnings"`
+}
+
 type orphanedSidecarsOutput struct {
 	Sidecars []orphanedSidecarOutput `json:"sidecars"`
 }
@@ -160,7 +184,9 @@ func New(root string) (*Server, error) {
 			Version: buildVersion(),
 		}, nil),
 	}
-	s.registerTools()
+	if err := s.registerTools(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -176,7 +202,12 @@ func (s *Server) Root() string {
 	return s.library.Root()
 }
 
-func (s *Server) registerTools() {
+func (s *Server) registerTools() error {
+	queryBooksSchema, err := queryBooksInputSchema()
+	if err != nil {
+		return err
+	}
+
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_specification",
 		Description: "Return shelff specification and JSON schemas. Call this to learn about sidecar JSON structure, field meanings, and file conventions before using other tools.",
@@ -209,6 +240,17 @@ func (s *Server) registerTools() {
 		Name:        "scan_books",
 		Description: "Scan the library for PDF files and whether they have sidecars, with optional directory filtering and pagination.",
 	}, s.scanBooks)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name: "query_books",
+		Description: "Search books by sidecar contents (category, tags, reading status, collection, archive state) and return a compact summary of each match. " +
+			"All filters are optional, exact-match (case-sensitive), and combined with AND. " +
+			"An empty value means unset: category \"\" matches books with no category, collection \"\" matches books with no collection, tags [] matches books with no tags, and status \"\" matches books without reading.status (including books with no reading block). " +
+			"status \"unread\" does not include books whose status is unset; call twice to get both. archived false also matches books with no archive block. " +
+			"Books without a sidecar are excluded; use scan_books to list every PDF. Sidecars that cannot be parsed or disappear during the query are skipped and reported in warnings. " +
+			"In each summary, fields that are unset are omitted; an empty tags array is omitted too.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		InputSchema: queryBooksSchema,
+	}, s.queryBooks)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "find_orphaned_sidecars",
 		Description: "List sidecar files whose corresponding PDF is missing.",
@@ -277,6 +319,26 @@ func (s *Server) registerTools() {
 		Name:        "reorder_tags",
 		Description: "Replace the tag display order list.",
 	}, s.reorderTags)
+	return nil
+}
+
+func queryBooksInputSchema() (*jsonschema.Schema, error) {
+	schema, err := jsonschema.For[queryBooksInput](nil)
+	if err != nil {
+		return nil, err
+	}
+	enums := map[string][]any{
+		"status":   {string(shelff.StatusUnread), string(shelff.StatusReading), string(shelff.StatusFinished), ""},
+		"tagMatch": {string(shelff.TagMatchAny), string(shelff.TagMatchAll)},
+	}
+	for name, values := range enums {
+		property, ok := schema.Properties[name]
+		if !ok {
+			return nil, fmt.Errorf("query_books input schema has no %q property", name)
+		}
+		property.Enum = values
+	}
+	return schema, nil
 }
 
 func (s *Server) readMetadata(_ context.Context, _ *mcp.CallToolRequest, in pdfPathInput) (*mcp.CallToolResult, readMetadataOutput, error) {
@@ -449,6 +511,78 @@ func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBoo
 			item.SidecarPath = &sidecarPath
 		}
 		out.Books = append(out.Books, item)
+	}
+	return nil, out, nil
+}
+
+func (s *Server) queryBooks(_ context.Context, _ *mcp.CallToolRequest, in queryBooksInput) (*mcp.CallToolResult, queryBooksOutput, error) {
+	limit := defaultScanBooksLimit
+	if in.Limit != nil {
+		limit = *in.Limit
+	}
+	if limit <= 0 {
+		return nil, queryBooksOutput{}, ErrInvalidLimit
+	}
+
+	offset := 0
+	if in.Offset != nil {
+		offset = *in.Offset
+	}
+	if offset < 0 {
+		return nil, queryBooksOutput{}, ErrInvalidOffset
+	}
+
+	directory := s.library.Root()
+	if in.Directory != nil && strings.TrimSpace(*in.Directory) != "" {
+		var err error
+		directory, err = s.resolveDirectoryPath(*in.Directory)
+		if err != nil {
+			return nil, queryBooksOutput{}, err
+		}
+	}
+
+	recursive := true
+	if in.Recursive != nil {
+		recursive = *in.Recursive
+	}
+
+	result, err := s.library.QueryBooksInDirectory(directory, recursive, shelff.BookFilter{
+		Category:   in.Category,
+		Tags:       in.Tags,
+		TagMatch:   shelff.TagMatch(in.TagMatch),
+		Status:     in.Status,
+		Collection: in.Collection,
+		Archived:   in.Archived,
+	})
+	if err != nil {
+		return nil, queryBooksOutput{}, err
+	}
+
+	total := len(result.Books)
+	start := min(offset, total)
+	end := start + min(limit, total-start)
+	page := result.Books[start:end]
+
+	out := queryBooksOutput{
+		Books:    make([]shelff.BookSummary, 0, len(page)),
+		Total:    total,
+		Offset:   offset,
+		Limit:    limit,
+		HasMore:  end < total,
+		Warnings: result.Warnings,
+	}
+	for _, book := range page {
+		pdfPath, err := s.relativePath(book.PDFPath)
+		if err != nil {
+			return nil, queryBooksOutput{}, err
+		}
+		sidecarPath, err := s.relativePath(book.SidecarPath)
+		if err != nil {
+			return nil, queryBooksOutput{}, err
+		}
+		book.PDFPath = pdfPath
+		book.SidecarPath = sidecarPath
+		out.Books = append(out.Books, book)
 	}
 	return nil, out, nil
 }
@@ -753,6 +887,7 @@ func toolNames() []string {
 		"move_book",
 		"rename_book",
 		"scan_books",
+		"query_books",
 		"find_orphaned_sidecars",
 		"validate_sidecar",
 		"list_directories",
