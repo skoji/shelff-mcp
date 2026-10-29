@@ -1341,3 +1341,101 @@ func TestWriteMetadataPreservesDisplayCrop(t *testing.T) {
 		t.Fatalf("validate_sidecar errors = %#v, want none", validateOut.Errors)
 	}
 }
+
+func TestArchiveStateThroughTools(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestPDF(t, root, "book.pdf")
+	writeTestPDF(t, root, "plain.pdf")
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	before := time.Now().UTC().Truncate(time.Second)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "write_metadata",
+		Arguments: map[string]any{
+			"pdfPath":  "book.pdf",
+			"metadata": map[string]any{"archive": map[string]any{"isArchived": true}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_metadata error = %v", err)
+	}
+	after := time.Now().UTC()
+	var writeOut map[string]any
+	decodeStructuredContent(t, result, &writeOut)
+	archive, ok := writeOut["metadata"].(map[string]any)["archive"].(map[string]any)
+	if !ok {
+		t.Fatalf("write_metadata output = %#v, want metadata.archive object", writeOut)
+	}
+	if archive["isArchived"] != true {
+		t.Fatalf("archive.isArchived = %#v, want true", archive["isArchived"])
+	}
+	changedAt, err := time.Parse(time.RFC3339, archive["changedAt"].(string))
+	if err != nil {
+		t.Fatalf("archive.changedAt = %#v: %v", archive["changedAt"], err)
+	}
+	if changedAt.Before(before) || changedAt.After(after) {
+		t.Fatalf("archive.changedAt = %s, want between %s and %s", changedAt, before, after)
+	}
+
+	readResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "read_metadata",
+		Arguments: map[string]any{"pdfPath": "book.pdf"},
+	})
+	if err != nil {
+		t.Fatalf("read_metadata error = %v", err)
+	}
+	var readOut map[string]any
+	decodeStructuredContent(t, readResult, &readOut)
+	if _, ok := readOut["metadata"].(map[string]any)["archive"].(map[string]any); !ok {
+		t.Fatalf("read_metadata output = %#v, want metadata.archive object", readOut)
+	}
+
+	assertToolErrorContains(t, session, "write_metadata", map[string]any{
+		"pdfPath":  "book.pdf",
+		"metadata": map[string]any{"archive": map[string]any{"isArchived": "yes"}},
+	}, shelff.ErrInvalidFieldValue.Error())
+
+	statsResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "library_stats",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("library_stats error = %v", err)
+	}
+	var statsOut map[string]any
+	decodeStructuredContent(t, statsResult, &statsOut)
+	if statsOut["Archived"] != float64(1) {
+		t.Fatalf("library_stats = %#v, want Archived=1", statsOut)
+	}
+
+	badPDF := writeTestPDF(t, root, "bad.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(badPDF), `{"schemaVersion":1,"metadata":{"dc:title":"bad"},"archive":{"isArchived":true,"changedAt":"yesterday"}}`)
+	checkResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "check_library",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("check_library error = %v", err)
+	}
+	if checkResult.IsError {
+		t.Fatalf("check_library returned tool error: %#v", checkResult.Content)
+	}
+	var checkOut map[string]any
+	decodeStructuredContent(t, checkResult, &checkOut)
+	issues, ok := checkOut["invalidArchives"].([]any)
+	if !ok || len(issues) != 1 {
+		t.Fatalf("check_library invalidArchives = %#v, want one issue", checkOut["invalidArchives"])
+	}
+	issue := issues[0].(map[string]any)
+	if issue["sidecarPath"] != "bad.pdf.meta.json" {
+		t.Fatalf("invalidArchives[0] = %#v, want sidecarPath bad.pdf.meta.json", issue)
+	}
+	if errs, ok := issue["errors"].([]any); !ok || len(errs) == 0 {
+		t.Fatalf("invalidArchives[0] = %#v, want errors", issue)
+	}
+}
