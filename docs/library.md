@@ -285,6 +285,7 @@ The main exported structs are:
 - `DublinCore`
 - `ReadingProgress`
 - `DisplaySettings`
+- `ArchiveState`
 - `CategoryList`
 - `CategoryItem`
 - `TagOrder`
@@ -292,6 +293,7 @@ The main exported structs are:
 - `OrphanedSidecar`
 - `LibraryStats`
 - `CheckLibraryResult`
+- `SidecarIssue`
 - `DotShelffStatus`
 - `IntegrityReport`
 - `LibrarySummary`
