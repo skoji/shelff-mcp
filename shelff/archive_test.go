@@ -207,3 +207,37 @@ func TestWriteMetadataRejectsInvalidArchive(t *testing.T) {
 		})
 	}
 }
+
+func TestStatsCountsArchivedBooks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+
+	archivedPDF := writeTestPDF(t, root, "archived.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(archivedPDF), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "archived"},
+  "reading": {"lastReadPage": 1, "lastReadAt": "2026-10-01T00:00:00Z", "totalPages": 10, "status": "reading"},
+  "archive": {"isArchived": true, "changedAt": "2026-10-27T01:02:03Z"}
+}`)
+	unarchivedPDF := writeTestPDF(t, root, "unarchived.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(unarchivedPDF), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "unarchived"},
+  "archive": {"isArchived": false, "changedAt": "2026-10-28T00:00:00Z"}
+}`)
+	writeTagsSidecar(t, root, "plain.pdf", []string{"golang"})
+	writeTestPDF(t, root, "nosidecar.pdf")
+
+	stats, err := library.Stats()
+	if err != nil {
+		t.Fatalf("Stats returned error: %v", err)
+	}
+	if stats.Archived != 1 {
+		t.Fatalf("Archived = %d, want 1", stats.Archived)
+	}
+	if stats.StatusCounts[string(shelff.StatusReading)] != 1 {
+		t.Fatalf("StatusCounts = %#v, want archived book still counted as reading", stats.StatusCounts)
+	}
+}
