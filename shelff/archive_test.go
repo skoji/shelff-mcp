@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -239,5 +240,101 @@ func TestStatsCountsArchivedBooks(t *testing.T) {
 	}
 	if stats.StatusCounts[string(shelff.StatusReading)] != 1 {
 		t.Fatalf("StatusCounts = %#v, want archived book still counted as reading", stats.StatusCounts)
+	}
+}
+
+func TestCheckLibraryReportsInvalidArchives(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	nested := filepath.Join(root, "nested")
+	mkdirAll(t, nested)
+
+	validPDF := writeTestPDF(t, root, "valid.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(validPDF), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "valid"},
+  "category": "Fiction",
+  "archive": {"isArchived": true, "changedAt": "2026-10-27T01:02:03Z"}
+}`)
+	// Unparseable changedAt makes the typed read fail; check must still go on.
+	badTimePDF := writeTestPDF(t, nested, "badtime.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(badTimePDF), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "badtime"},
+  "category": "Skipped",
+  "archive": {"isArchived": true, "changedAt": "yesterday"}
+}`)
+	// Structurally invalid but still readable: the rest of the sidecar counts.
+	missingPDF := writeTestPDF(t, root, "missing.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(missingPDF), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "missing"},
+  "tags": ["kept"],
+  "archive": {"isArchived": true, "archivedAt": "2026-10-27T01:02:03Z"}
+}`)
+	// Problems outside archive are not archive issues.
+	otherPDF := writeTestPDF(t, root, "other.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(otherPDF), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "other"},
+  "reading": {"lastReadPage": 0, "lastReadAt": "2026-10-01T00:00:00Z", "totalPages": 10, "status": "bogus"}
+}`)
+
+	result, err := library.CheckLibrary()
+	if err != nil {
+		t.Fatalf("CheckLibrary returned error: %v", err)
+	}
+
+	if len(result.InvalidArchives) != 2 {
+		t.Fatalf("InvalidArchives = %+v, want 2 entries", result.InvalidArchives)
+	}
+	missing := result.InvalidArchives[0]
+	if missing.SidecarPath != "missing.pdf.meta.json" {
+		t.Fatalf("InvalidArchives[0].SidecarPath = %q, want missing.pdf.meta.json", missing.SidecarPath)
+	}
+	if joined := strings.Join(missing.Errors, "\n"); !strings.Contains(joined, "changedAt") || !strings.Contains(joined, "archivedAt") {
+		t.Fatalf("InvalidArchives[0].Errors = %q, want missing changedAt and unknown archivedAt", missing.Errors)
+	}
+	badTime := result.InvalidArchives[1]
+	if badTime.SidecarPath != filepath.Join("nested", "badtime.pdf.meta.json") {
+		t.Fatalf("InvalidArchives[1].SidecarPath = %q, want nested/badtime.pdf.meta.json", badTime.SidecarPath)
+	}
+	if joined := strings.Join(badTime.Errors, "\n"); !strings.Contains(joined, "$.archive.changedAt") {
+		t.Fatalf("InvalidArchives[1].Errors = %q, want $.archive.changedAt error", badTime.Errors)
+	}
+	for _, issue := range result.InvalidArchives {
+		for _, msg := range issue.Errors {
+			if !strings.HasPrefix(msg, "$.archive") {
+				t.Fatalf("InvalidArchives contains non-archive error %q", msg)
+			}
+		}
+	}
+
+	if !slices.Equal(result.Integrity.UndefinedCategories, []string{"Fiction"}) {
+		t.Fatalf("UndefinedCategories = %v, want [Fiction] with the unreadable sidecar skipped", result.Integrity.UndefinedCategories)
+	}
+	if !slices.Equal(result.Integrity.UndefinedTags, []string{"kept"}) {
+		t.Fatalf("UndefinedTags = %v, want [kept]", result.Integrity.UndefinedTags)
+	}
+	if result.Summary.TotalPDFs != 4 || result.Summary.WithSidecar != 4 || result.Summary.WithoutSidecar != 0 {
+		t.Fatalf("Summary = %+v, want 4/4/0", result.Summary)
+	}
+}
+
+func TestCheckLibraryReportsNoInvalidArchivesAsEmptyList(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	writeTagsSidecar(t, root, "plain.pdf", []string{"golang"})
+
+	result, err := library.CheckLibrary()
+	if err != nil {
+		t.Fatalf("CheckLibrary returned error: %v", err)
+	}
+	if result.InvalidArchives == nil || len(result.InvalidArchives) != 0 {
+		t.Fatalf("InvalidArchives = %#v, want empty non-nil slice", result.InvalidArchives)
 	}
 }
