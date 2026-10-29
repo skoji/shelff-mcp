@@ -676,8 +676,8 @@ The create-or-merge logic is implemented in `shelff.WriteMetadata`, so the MCP h
 
 Objects are deep-merged and `null` deletes a key, except for `archive`, which follows the schema's merge rule instead:
 
-- `archive` must be an object with a boolean `isArchived` and, optionally, a `changedAt` RFC 3339 date-time; any other key or type is rejected with `ErrInvalidFieldValue` before anything is written.
-- Without `changedAt` (the normal archive/unarchive request): if there is no stored `archive` or its `isArchived` differs, the object becomes `{isArchived, changedAt: now}` with the current UTC time at second precision. Re-sending the stored state keeps the stored object, so `changedAt` does not advance.
+- `archive` must be an object with a boolean `isArchived` and, optionally, a `changedAt` RFC 3339 date-time string; any other key or type is rejected with `ErrInvalidFieldValue` before anything is written.
+- Without `changedAt` (the normal archive/unarchive request): if there is no stored `archive` or its `isArchived` differs, the object becomes `{isArchived, changedAt: now}` with the current UTC time at second precision. Re-sending the stored state keeps the stored object, so `changedAt` does not advance, unless the stored object lacks `changedAt` (a schema violation), in which case it is stamped with the current time to repair it.
 - With `changedAt`: the input replaces the stored object only if its `changedAt` is not older than the stored one (or nothing is stored); otherwise the stored object is kept. This is the "newer `changedAt` wins" rule used when merging conflicting copies.
 - `archive: null` removes the object, like any other key. Unarchiving should send `isArchived: false` instead so that the state change is recorded.
 

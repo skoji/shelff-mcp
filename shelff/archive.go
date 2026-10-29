@@ -25,7 +25,11 @@ func parseArchivePatch(raw any) (archivePatch, error) {
 	}
 
 	var patch archivePatch
-	patch.isArchived, ok = object["isArchived"].(bool)
+	rawIsArchived, present := object["isArchived"]
+	if !present {
+		return archivePatch{}, fmt.Errorf("%w: archive.isArchived is required", ErrInvalidFieldValue)
+	}
+	patch.isArchived, ok = rawIsArchived.(bool)
 	if !ok {
 		return archivePatch{}, fmt.Errorf("%w: archive.isArchived must be a boolean", ErrInvalidFieldValue)
 	}
@@ -34,20 +38,16 @@ func parseArchivePatch(raw any) (archivePatch, error) {
 	if !present {
 		return patch, nil
 	}
-	switch value := rawChangedAt.(type) {
-	case string:
-		parsed, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			return archivePatch{}, fmt.Errorf("%w: archive.changedAt %q is not an RFC 3339 date-time", ErrInvalidFieldValue, value)
-		}
-		patch.changedAt = parsed
-		patch.hasChangedAt = true
-	case time.Time:
-		patch.changedAt = value
-		patch.hasChangedAt = true
-	default:
+	value, ok := rawChangedAt.(string)
+	if !ok {
 		return archivePatch{}, fmt.Errorf("%w: archive.changedAt must be a date-time string", ErrInvalidFieldValue)
 	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return archivePatch{}, fmt.Errorf("%w: archive.changedAt %q is not an RFC 3339 date-time", ErrInvalidFieldValue, value)
+	}
+	patch.changedAt = parsed
+	patch.hasChangedAt = true
 
 	return patch, nil
 }
@@ -62,7 +62,7 @@ func (p archivePatch) resolve(existing *ArchiveState) map[string]any {
 		}
 		changedAt = p.changedAt
 	} else {
-		if existing != nil && existing.IsArchived == p.isArchived {
+		if existing != nil && existing.IsArchived == p.isArchived && !existing.ChangedAt.IsZero() {
 			return nil
 		}
 		// Second precision keeps the timestamp parseable by ISO 8601 readers
