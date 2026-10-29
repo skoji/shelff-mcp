@@ -485,7 +485,7 @@ func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBoo
 
 	total := len(books)
 	start := min(offset, total)
-	end := min(start+limit, total)
+	end := start + min(limit, total-start)
 	page := books[start:end]
 
 	out := scanBooksOutput{
