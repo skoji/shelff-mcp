@@ -42,16 +42,16 @@ type scanBooksInput struct {
 }
 
 type queryBooksInput struct {
-	Directory  *string   `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
-	Recursive  *bool     `json:"recursive,omitempty" jsonschema:"Whether to search subdirectories recursively. Defaults to true."`
-	Category   *string   `json:"category,omitempty" jsonschema:"Exact, case-sensitive category match. An empty string matches books without a category."`
-	Tags       *[]string `json:"tags,omitempty" jsonschema:"Exact, case-sensitive tags to match, combined according to tagMatch. An empty array matches books with no tags."`
-	TagMatch   string    `json:"tagMatch,omitempty" jsonschema:"How multiple tags are combined: \"any\" (default) or \"all\"."`
-	Status     *string   `json:"status,omitempty" jsonschema:"reading.status to match: \"unread\", \"reading\", or \"finished\". An empty string matches books without reading.status (including books without a reading block); \"unread\" does not include them."`
-	Collection *string   `json:"collection,omitempty" jsonschema:"Exact, case-sensitive collection.title match. An empty string matches books without a collection."`
-	Archived   *bool     `json:"archived,omitempty" jsonschema:"archive.isArchived to match. false also matches books without an archive block. Omit to include both."`
-	Limit      *int      `json:"limit,omitempty" jsonschema:"Maximum number of books to return. Defaults to 100."`
-	Offset     *int      `json:"offset,omitempty" jsonschema:"Number of matching books to skip before returning results. Defaults to 0."`
+	Directory  *string               `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
+	Recursive  *bool                 `json:"recursive,omitempty" jsonschema:"Whether to search subdirectories recursively. Defaults to true."`
+	Category   *string               `json:"category,omitempty" jsonschema:"Exact, case-sensitive category match. An empty string matches books without a category."`
+	Tags       *[]string             `json:"tags,omitempty" jsonschema:"Exact, case-sensitive tags to match, combined according to tagMatch. An empty array matches books with no tags."`
+	TagMatch   string                `json:"tagMatch,omitempty" jsonschema:"How multiple tags are combined: \"any\" (default) or \"all\"."`
+	Status     *shelff.ReadingStatus `json:"status,omitempty" jsonschema:"reading.status to match: \"unread\", \"reading\", or \"finished\". An empty string matches books without reading.status (including books without a reading block); \"unread\" does not include them."`
+	Collection *string               `json:"collection,omitempty" jsonschema:"Exact, case-sensitive collection.title match. An empty string matches books without a collection."`
+	Archived   *bool                 `json:"archived,omitempty" jsonschema:"archive.isArchived to match. false also matches books without an archive block. Omit to include both."`
+	Limit      *int                  `json:"limit,omitempty" jsonschema:"Maximum number of books to return. Defaults to 100."`
+	Offset     *int                  `json:"offset,omitempty" jsonschema:"Number of matching books to skip before returning results. Defaults to 0."`
 }
 
 type writeMetadataInput struct {

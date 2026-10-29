@@ -6,9 +6,13 @@ import (
 	"slices"
 )
 
+var readSidecarFile = os.ReadFile
+
 // QueryBooksInDirectory returns summaries of books under dirPath whose sidecar
 // matches filter. Books without a sidecar are excluded. Sidecars that cannot
-// be parsed are skipped and reported in Warnings.
+// be parsed, or that disappear between the scan and the read, are skipped and
+// reported in Warnings. An empty category or collection title in a sidecar is
+// treated as unset.
 // If recursive is true, searches subdirectories below dirPath.
 func (l *Library) QueryBooksInDirectory(dirPath string, recursive bool, filter BookFilter) (*QueryBooksResult, error) {
 	if err := filter.validate(); err != nil {
@@ -30,9 +34,10 @@ func (l *Library) QueryBooksInDirectory(dirPath string, recursive bool, filter B
 		}
 		sidecarPath := *book.SidecarPath
 
-		data, err := os.ReadFile(sidecarPath)
+		data, err := readSidecarFile(sidecarPath)
 		if err != nil {
 			if os.IsNotExist(err) {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("skipped sidecar removed during query: %s", l.relativeLibraryPath(sidecarPath)))
 				continue
 			}
 			return nil, err
@@ -43,10 +48,10 @@ func (l *Library) QueryBooksInDirectory(dirPath string, recursive bool, filter B
 			continue
 		}
 
-		if !filter.matches(meta) {
-			continue
+		summary := summarizeBook(book.PDFPath, sidecarPath, meta)
+		if filter.matches(summary) {
+			result.Books = append(result.Books, summary)
 		}
-		result.Books = append(result.Books, summarizeBook(book.PDFPath, sidecarPath, meta))
 	}
 	return result, nil
 }
@@ -57,59 +62,57 @@ func (f BookFilter) validate() error {
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidTagMatch, f.TagMatch)
 	}
-	if f.Status != nil && *f.Status != "" && !ReadingStatus(*f.Status).Valid() {
+	if f.Status != nil && *f.Status != "" && !f.Status.Valid() {
 		return fmt.Errorf("%w: %q", ErrInvalidStatusFilter, *f.Status)
 	}
 	return nil
 }
 
-func (f BookFilter) matches(meta *SidecarMetadata) bool {
-	if f.Category != nil {
-		if *f.Category == "" {
-			if meta.Category != nil {
-				return false
-			}
-		} else if meta.Category == nil || *meta.Category != *f.Category {
-			return false
-		}
+func (f BookFilter) matches(book BookSummary) bool {
+	if f.Category != nil && !matchesOptionalString(*f.Category, book.Category) {
+		return false
 	}
 
 	if f.Collection != nil {
-		if *f.Collection == "" {
-			if meta.Collection != nil {
-				return false
-			}
-		} else if meta.Collection == nil || meta.Collection.Title != *f.Collection {
+		var title *string
+		if book.Collection != nil {
+			title = &book.Collection.Title
+		}
+		if !matchesOptionalString(*f.Collection, title) {
 			return false
 		}
 	}
 
-	if f.Tags != nil && !f.matchesTags(meta.Tags) {
+	if f.Tags != nil && !f.matchesTags(book.Tags) {
 		return false
 	}
 
 	if f.Status != nil {
-		var status *ReadingStatus
-		if meta.Reading != nil {
-			status = meta.Reading.Status
-		}
 		if *f.Status == "" {
-			if status != nil {
+			if book.Status != nil {
 				return false
 			}
-		} else if status == nil || string(*status) != *f.Status {
+		} else if book.Status == nil || *book.Status != *f.Status {
 			return false
 		}
 	}
 
 	if f.Archived != nil {
-		archived := meta.Archive != nil && meta.Archive.IsArchived
+		archived := book.Archived != nil && *book.Archived
 		if archived != *f.Archived {
 			return false
 		}
 	}
 
 	return true
+}
+
+// matchesOptionalString treats an empty want as "unset" and matches a nil value.
+func matchesOptionalString(want string, value *string) bool {
+	if want == "" {
+		return value == nil
+	}
+	return value != nil && *value == want
 }
 
 func (f BookFilter) matchesTags(bookTags []string) bool {
@@ -139,9 +142,13 @@ func summarizeBook(pdfPath string, sidecarPath string, meta *SidecarMetadata) Bo
 		SidecarPath: sidecarPath,
 		Title:       meta.Metadata.Title,
 		Creators:    meta.Metadata.Creator,
-		Category:    meta.Category,
 		Tags:        meta.Tags,
-		Collection:  meta.Collection,
+	}
+	if meta.Category != nil && *meta.Category != "" {
+		summary.Category = meta.Category
+	}
+	if meta.Collection != nil && meta.Collection.Title != "" {
+		summary.Collection = meta.Collection
 	}
 	if meta.Reading != nil {
 		summary.Status = meta.Reading.Status

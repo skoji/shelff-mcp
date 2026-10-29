@@ -174,20 +174,25 @@ const (
 // with AND. A nil field means no condition; a pointer to an empty value
 // matches books where that field is unset.
 type BookFilter struct {
+	// Category set to "" matches books whose category is missing or "".
 	Category *string
 	// Tags set to an empty slice matches books with no tags.
 	Tags *[]string
 	// TagMatch defaults to TagMatchAny when empty.
 	TagMatch TagMatch
 	// Status set to "" matches books without reading.status, including books
-	// without a reading block. "unread" does not match unset status.
-	Status     *string
+	// without a reading block. StatusUnread does not match unset status.
+	Status *ReadingStatus
+	// Collection set to "" matches books whose collection is missing or has
+	// an empty title.
 	Collection *string
 	// Archived set to false also matches books without an archive block.
 	Archived *bool
 }
 
 // BookSummary is a compact view of a sidecar returned by QueryBooksInDirectory.
+// An empty category or collection title is omitted as unset, and empty tags
+// are omitted.
 type BookSummary struct {
 	PDFPath     string         `json:"pdfPath"`
 	SidecarPath string         `json:"sidecarPath"`
@@ -204,7 +209,8 @@ type BookSummary struct {
 // sidecars that were skipped.
 type QueryBooksResult struct {
 	Books []BookSummary
-	// Warnings mention unparsable sidecars by library-relative path.
+	// Warnings mention skipped sidecars (unparsable, or removed between scan
+	// and read) by library-relative path.
 	Warnings []string
 }
 
