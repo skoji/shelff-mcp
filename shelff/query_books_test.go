@@ -2,6 +2,7 @@ package shelff_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -84,6 +85,11 @@ func boolPtr(value bool) *bool {
 	return &value
 }
 
+func statusPtr(value string) *shelff.ReadingStatus {
+	status := shelff.ReadingStatus(value)
+	return &status
+}
+
 func tagsPtr(values ...string) *[]string {
 	tags := append([]string{}, values...)
 	return &tags
@@ -109,13 +115,13 @@ func TestQueryBooksInDirectoryFilters(t *testing.T) {
 		{name: "tags any explicit", filter: shelff.BookFilter{Tags: tagsPtr("fantasy", "go"), TagMatch: shelff.TagMatchAny}, want: []string{"a.pdf", "b.pdf"}},
 		{name: "tags all", filter: shelff.BookFilter{Tags: tagsPtr("fantasy", "history"), TagMatch: shelff.TagMatchAll}, want: []string{"a.pdf"}},
 		{name: "tags all without match", filter: shelff.BookFilter{Tags: tagsPtr("history", "go"), TagMatch: shelff.TagMatchAll}, want: []string{}},
-		{name: "empty status means unset including no reading block", filter: shelff.BookFilter{Status: stringPtr("")}, want: []string{"c.pdf", "d.pdf"}},
-		{name: "unread does not include unset", filter: shelff.BookFilter{Status: stringPtr("unread")}, want: []string{"b.pdf"}},
-		{name: "reading", filter: shelff.BookFilter{Status: stringPtr("reading")}, want: []string{"a.pdf"}},
-		{name: "finished", filter: shelff.BookFilter{Status: stringPtr("finished")}, want: []string{"sub/f.pdf"}},
+		{name: "empty status means unset including no reading block", filter: shelff.BookFilter{Status: statusPtr("")}, want: []string{"c.pdf", "d.pdf"}},
+		{name: "unread does not include unset", filter: shelff.BookFilter{Status: statusPtr("unread")}, want: []string{"b.pdf"}},
+		{name: "reading", filter: shelff.BookFilter{Status: statusPtr("reading")}, want: []string{"a.pdf"}},
+		{name: "finished", filter: shelff.BookFilter{Status: statusPtr("finished")}, want: []string{"sub/f.pdf"}},
 		{name: "archived true", filter: shelff.BookFilter{Archived: boolPtr(true)}, want: []string{"a.pdf"}},
 		{name: "archived false includes missing archive", filter: shelff.BookFilter{Archived: boolPtr(false)}, want: []string{"b.pdf", "c.pdf", "d.pdf", "sub/f.pdf"}},
-		{name: "and category with unset status", filter: shelff.BookFilter{Category: stringPtr("Fiction"), Status: stringPtr("")}, want: []string{"d.pdf"}},
+		{name: "and category with unset status", filter: shelff.BookFilter{Category: stringPtr("Fiction"), Status: statusPtr("")}, want: []string{"d.pdf"}},
 		{name: "and category with tag", filter: shelff.BookFilter{Category: stringPtr("Fiction"), Tags: tagsPtr("history"), Archived: boolPtr(false)}, want: []string{"sub/f.pdf"}},
 	}
 
@@ -222,7 +228,123 @@ func TestQueryBooksInDirectoryRejectsInvalidFilter(t *testing.T) {
 	if _, err := library.QueryBooksInDirectory(root, true, shelff.BookFilter{TagMatch: "some"}); !errors.Is(err, shelff.ErrInvalidTagMatch) {
 		t.Fatalf("invalid tagMatch err = %v, want ErrInvalidTagMatch", err)
 	}
-	if _, err := library.QueryBooksInDirectory(root, true, shelff.BookFilter{Status: stringPtr("done")}); !errors.Is(err, shelff.ErrInvalidStatusFilter) {
+	if _, err := library.QueryBooksInDirectory(root, true, shelff.BookFilter{Status: statusPtr("done")}); !errors.Is(err, shelff.ErrInvalidStatusFilter) {
 		t.Fatalf("invalid status err = %v, want ErrInvalidStatusFilter", err)
+	}
+}
+
+func TestQueryBooksInDirectoryTreatsEmptyStringsAsUnset(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	writeRawJSONFile(t, shelff.SidecarPath(writeTestPDF(t, root, "empty.pdf")), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Empty"},
+  "category": "",
+  "collection": {"title": ""}
+}`)
+	writeRawJSONFile(t, shelff.SidecarPath(writeTestPDF(t, root, "missing.pdf")), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Missing"}
+}`)
+	writeRawJSONFile(t, shelff.SidecarPath(writeTestPDF(t, root, "set.pdf")), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Set"},
+  "category": "X",
+  "collection": {"title": "S"}
+}`)
+
+	tests := []struct {
+		name   string
+		filter shelff.BookFilter
+		want   []string
+	}{
+		{name: "empty category filter matches empty and missing", filter: shelff.BookFilter{Category: stringPtr("")}, want: []string{"empty.pdf", "missing.pdf"}},
+		{name: "category value does not match empty", filter: shelff.BookFilter{Category: stringPtr("X")}, want: []string{"set.pdf"}},
+		{name: "empty collection filter matches empty title and missing", filter: shelff.BookFilter{Collection: stringPtr("")}, want: []string{"empty.pdf", "missing.pdf"}},
+		{name: "collection value does not match empty title", filter: shelff.BookFilter{Collection: stringPtr("S")}, want: []string{"set.pdf"}},
+	}
+	for _, tt := range tests {
+		result, err := library.QueryBooksInDirectory(root, true, tt.filter)
+		if err != nil {
+			t.Fatalf("%s: QueryBooksInDirectory returned error: %v", tt.name, err)
+		}
+		if got := queryBookNames(t, root, result); !slices.Equal(got, tt.want) {
+			t.Fatalf("%s: books = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+
+	result, err := library.QueryBooksInDirectory(root, true, shelff.BookFilter{})
+	if err != nil {
+		t.Fatalf("QueryBooksInDirectory returned error: %v", err)
+	}
+	empty := result.Books[0]
+	if empty.Title != "Empty" || empty.Category != nil || empty.Collection != nil {
+		t.Fatalf("empty summary = %#v, want category and collection omitted", empty)
+	}
+}
+
+func TestQueryBooksInDirectoryWarnsAboutSidecarsRemovedDuringQuery(t *testing.T) {
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	keptPDF := writeTestPDF(t, root, "kept.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(keptPDF), `{"schemaVersion":1,"metadata":{"dc:title":"Kept"}}`)
+	gonePDF := writeTestPDF(t, root, "gone.pdf")
+	goneSidecar := shelff.SidecarPath(gonePDF)
+	writeRawJSONFile(t, goneSidecar, `{"schemaVersion":1,"metadata":{"dc:title":"Gone"}}`)
+
+	shelff.SetReadSidecarFileForTest(t, func(path string) ([]byte, error) {
+		if path == goneSidecar {
+			if err := os.Remove(path); err != nil {
+				t.Fatalf("os.Remove(%q): %v", path, err)
+			}
+		}
+		return os.ReadFile(path)
+	})
+
+	result, err := library.QueryBooksInDirectory(root, true, shelff.BookFilter{})
+	if err != nil {
+		t.Fatalf("QueryBooksInDirectory returned error: %v", err)
+	}
+	if got, want := queryBookNames(t, root, result), []string{"kept.pdf"}; !slices.Equal(got, want) {
+		t.Fatalf("books = %v, want %v", got, want)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "gone.pdf.meta.json") || strings.Contains(result.Warnings[0], root) {
+		t.Fatalf("warnings = %v, want one relative warning mentioning gone.pdf.meta.json", result.Warnings)
+	}
+}
+
+func TestQueryBooksInDirectoryWithSymlinkRootNormalizesPaths(t *testing.T) {
+	t.Parallel()
+
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "library-link")
+	subDir := filepath.Join(realRoot, "sub")
+	mkdirAll(t, subDir)
+	bookPDF := writeTestPDF(t, subDir, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(bookPDF), `{"schemaVersion":1,"metadata":{"dc:title":"Book"}}`)
+	brokenPDF := writeTestPDF(t, subDir, "broken.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(brokenPDF), `{not json`)
+
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("os.Symlink unavailable: %v", err)
+	}
+
+	library := openTestLibrary(t, linkRoot)
+	for _, dir := range []string{linkRoot, "sub"} {
+		result, err := library.QueryBooksInDirectory(dir, true, shelff.BookFilter{})
+		if err != nil {
+			t.Fatalf("QueryBooksInDirectory(%q) returned error: %v", dir, err)
+		}
+
+		wantPDF := filepath.Join(linkRoot, "sub", "book.pdf")
+		if len(result.Books) != 1 || result.Books[0].PDFPath != wantPDF || result.Books[0].SidecarPath != shelff.SidecarPath(wantPDF) {
+			t.Fatalf("QueryBooksInDirectory(%q) books = %#v, want only %q under symlink root", dir, result.Books, wantPDF)
+		}
+		wantWarningPath := filepath.Join("sub", "broken.pdf.meta.json")
+		if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], wantWarningPath) || strings.Contains(result.Warnings[0], "..") {
+			t.Fatalf("QueryBooksInDirectory(%q) warnings = %v, want one warning with %q and no ..", dir, result.Warnings, wantWarningPath)
+		}
 	}
 }

@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -197,7 +199,98 @@ func TestQueryBooksFiltersAndPaginates(t *testing.T) {
 		t.Fatalf("directory pdfPaths = %v, want %v", got, want)
 	}
 	if warnings, ok := out["warnings"].([]any); !ok || len(warnings) != 0 {
-		t.Fatalf("directory warnings = %#v, want empty array", out["warnings"])
+		t.Fatalf("directory warnings = %#v, want [] rather than null", out["warnings"])
+	}
+}
+
+func TestQueryBooksTreatsEmptyStringsAsUnset(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRawJSONFile(t, shelff.SidecarPath(writeTestPDF(t, root, "empty.pdf")), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Empty"},
+  "category": "",
+  "collection": {"title": ""}
+}`)
+	writeRawJSONFile(t, shelff.SidecarPath(writeTestPDF(t, root, "set.pdf")), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Set"},
+  "category": "X",
+  "collection": {"title": "S"}
+}`)
+
+	server := newTestServer(t, root)
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	out := callQueryBooks(t, session, map[string]any{"category": "", "collection": ""})
+	if got, want := queryBooksPDFPaths(t, out), []string{"empty.pdf"}; !slices.Equal(got, want) {
+		t.Fatalf("pdfPaths = %v, want %v", got, want)
+	}
+	book := out["books"].([]any)[0].(map[string]any)
+	for _, key := range []string{"category", "collection"} {
+		if _, present := book[key]; present {
+			t.Fatalf("empty.pdf has %q = %#v, want omitted", key, book[key])
+		}
+	}
+
+	out = callQueryBooks(t, session, map[string]any{"category": "X", "collection": "S"})
+	if got, want := queryBooksPDFPaths(t, out), []string{"set.pdf"}; !slices.Equal(got, want) {
+		t.Fatalf("value filter pdfPaths = %v, want %v", got, want)
+	}
+}
+
+func TestQueryBooksInputSchemaListsEnums(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, t.TempDir())
+	session := newClientSession(t, server)
+	defer session.Close()
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools error = %v", err)
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Enum []any `json:"enum"`
+		} `json:"properties"`
+	}
+	for _, tool := range result.Tools {
+		if tool.Name != "query_books" {
+			continue
+		}
+		data, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("Marshal input schema error = %v", err)
+		}
+		if err := json.Unmarshal(data, &schema); err != nil {
+			t.Fatalf("Unmarshal input schema error = %v", err)
+		}
+	}
+
+	if got, want := schema.Properties["status"].Enum, []any{"unread", "reading", "finished", ""}; !slices.Equal(got, want) {
+		t.Fatalf("status enum = %#v, want %#v", got, want)
+	}
+	if got, want := schema.Properties["tagMatch"].Enum, []any{"any", "all"}; !slices.Equal(got, want) {
+		t.Fatalf("tagMatch enum = %#v, want %#v", got, want)
+	}
+}
+
+func TestQueryBooksHandlerRejectsInvalidFilterValues(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, t.TempDir())
+
+	_, _, err := server.queryBooks(context.Background(), nil, queryBooksInput{TagMatch: "some"})
+	if !errors.Is(err, shelff.ErrInvalidTagMatch) {
+		t.Fatalf("tagMatch err = %v, want ErrInvalidTagMatch", err)
+	}
+	status := shelff.ReadingStatus("done")
+	_, _, err = server.queryBooks(context.Background(), nil, queryBooksInput{Status: &status})
+	if !errors.Is(err, shelff.ErrInvalidStatusFilter) {
+		t.Fatalf("status err = %v, want ErrInvalidStatusFilter", err)
 	}
 }
 
