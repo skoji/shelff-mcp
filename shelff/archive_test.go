@@ -182,6 +182,7 @@ func TestWriteMetadataRejectsInvalidArchive(t *testing.T) {
 		{name: "non-boolean isArchived", archive: map[string]any{"isArchived": "yes"}},
 		{name: "invalid changedAt", archive: map[string]any{"isArchived": true, "changedAt": "yesterday"}},
 		{name: "non-string changedAt", archive: map[string]any{"isArchived": true, "changedAt": 12345}},
+		{name: "null changedAt", archive: map[string]any{"isArchived": false, "changedAt": nil}},
 		{name: "unknown property", archive: map[string]any{"isArchived": true, "archivedAt": "2026-10-28T00:00:00Z"}},
 	}
 
@@ -321,6 +322,38 @@ func TestCheckLibraryReportsInvalidArchives(t *testing.T) {
 	if result.Summary.TotalPDFs != 4 || result.Summary.WithSidecar != 4 || result.Summary.WithoutSidecar != 0 {
 		t.Fatalf("Summary = %+v, want 4/4/0", result.Summary)
 	}
+}
+
+func TestCheckLibraryFailsWhenSidecarIsUnreadableForAnotherReason(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	pdfPath := writeTestPDF(t, root, "book.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "book"},
+  "tags": 123,
+  "archive": {"isArchived": true}
+}`)
+
+	if _, err := library.CheckLibrary(); err == nil {
+		t.Fatal("CheckLibrary returned nil error, want the non-archive read failure reported")
+	}
+}
+
+func TestWriteMetadataArchiveWithSameChangedAtAdoptsInput(t *testing.T) {
+	shelff.SetTimeNowForTest(t, archiveTestNow)
+
+	pdfPath := writeArchiveTestBook(t, archivedSidecarBody)
+
+	meta, err := shelff.WriteMetadata(pdfPath, map[string]any{
+		"archive": map[string]any{"isArchived": false, "changedAt": "2026-10-27T10:02:03+09:00"},
+	})
+	if err != nil {
+		t.Fatalf("WriteMetadata error = %v", err)
+	}
+	assertArchive(t, meta.Archive, false, time.Date(2026, 10, 27, 1, 2, 3, 0, time.UTC))
 }
 
 func TestCheckLibraryReportsNoInvalidArchivesAsEmptyList(t *testing.T) {
