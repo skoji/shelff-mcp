@@ -484,8 +484,7 @@ func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBoo
 	}
 
 	total := len(books)
-	start := min(offset, total)
-	end := start + min(limit, total-start)
+	start, end := pageBounds(total, offset, limit)
 	page := books[start:end]
 
 	out := scanBooksOutput{
@@ -560,8 +559,7 @@ func (s *Server) queryBooks(_ context.Context, _ *mcp.CallToolRequest, in queryB
 	}
 
 	total := len(result.Books)
-	start := min(offset, total)
-	end := start + min(limit, total-start)
+	start, end := pageBounds(total, offset, limit)
 	page := result.Books[start:end]
 
 	out := queryBooksOutput{
@@ -905,4 +903,11 @@ func toolNames() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+func pageBounds(total, offset, limit int) (start, end int) {
+	// start+limit can overflow int when limit is near math.MaxInt.
+	start = min(offset, total)
+	end = start + min(limit, total-start)
+	return start, end
 }
