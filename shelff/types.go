@@ -162,6 +162,52 @@ type BookEntry struct {
 	HasSidecar  bool
 }
 
+// TagMatch selects how multiple tags in a BookFilter are combined.
+type TagMatch string
+
+const (
+	TagMatchAny TagMatch = "any"
+	TagMatchAll TagMatch = "all"
+)
+
+// BookFilter selects books by sidecar contents. All conditions are combined
+// with AND. A nil field means no condition; a pointer to an empty value
+// matches books where that field is unset.
+type BookFilter struct {
+	Category *string
+	// Tags set to an empty slice matches books with no tags.
+	Tags *[]string
+	// TagMatch defaults to TagMatchAny when empty.
+	TagMatch TagMatch
+	// Status set to "" matches books without reading.status, including books
+	// without a reading block. "unread" does not match unset status.
+	Status     *string
+	Collection *string
+	// Archived set to false also matches books without an archive block.
+	Archived *bool
+}
+
+// BookSummary is a compact view of a sidecar returned by QueryBooksInDirectory.
+type BookSummary struct {
+	PDFPath     string         `json:"pdfPath"`
+	SidecarPath string         `json:"sidecarPath"`
+	Title       string         `json:"title"`
+	Creators    []string       `json:"creators,omitempty"`
+	Category    *string        `json:"category,omitempty"`
+	Tags        []string       `json:"tags,omitempty"`
+	Status      *ReadingStatus `json:"status,omitempty"`
+	Collection  *Collection    `json:"collection,omitempty"`
+	Archived    *bool          `json:"archived,omitempty"`
+}
+
+// QueryBooksResult holds the books matching a BookFilter and warnings about
+// sidecars that were skipped.
+type QueryBooksResult struct {
+	Books []BookSummary
+	// Warnings mention unparsable sidecars by library-relative path.
+	Warnings []string
+}
+
 // OrphanedSidecar represents a sidecar JSON with no corresponding PDF.
 type OrphanedSidecar struct {
 	SidecarPath string
