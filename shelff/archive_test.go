@@ -62,8 +62,6 @@ func TestWriteMetadataPreservesArchiveWhenUntouched(t *testing.T) {
 
 var archiveTestNow = time.Date(2026, 10, 29, 12, 34, 56, 789, time.UTC)
 
-// The tests below swap the package clock and therefore do not call t.Parallel.
-
 func TestWriteMetadataArchiveWithoutChangedAtStampsCurrentTime(t *testing.T) {
 	shelff.SetTimeNowForTest(t, archiveTestNow)
 
@@ -112,6 +110,24 @@ func TestWriteMetadataArchiveSameStateKeepsChangedAt(t *testing.T) {
 		t.Fatalf("WriteMetadata error = %v", err)
 	}
 	assertArchive(t, meta.Archive, true, time.Date(2026, 10, 27, 1, 2, 3, 0, time.UTC))
+}
+
+func TestWriteMetadataArchiveSameStateRepairsMissingChangedAt(t *testing.T) {
+	shelff.SetTimeNowForTest(t, archiveTestNow)
+
+	pdfPath := writeArchiveTestBook(t, `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "archive": {"isArchived": true}
+}`)
+
+	meta, err := shelff.WriteMetadata(pdfPath, map[string]any{
+		"archive": map[string]any{"isArchived": true},
+	})
+	if err != nil {
+		t.Fatalf("WriteMetadata error = %v", err)
+	}
+	assertArchive(t, meta.Archive, true, archiveTestNow.Truncate(time.Second))
 }
 
 func TestWriteMetadataArchiveWithNewerChangedAtReplacesExisting(t *testing.T) {
@@ -174,12 +190,14 @@ func TestWriteMetadataRejectsInvalidArchive(t *testing.T) {
 	shelff.SetTimeNowForTest(t, archiveTestNow)
 
 	tests := []struct {
-		name    string
-		archive any
+		name        string
+		archive     any
+		wantMessage string
 	}{
 		{name: "not an object", archive: true},
-		{name: "missing isArchived", archive: map[string]any{"changedAt": "2026-10-28T00:00:00Z"}},
-		{name: "non-boolean isArchived", archive: map[string]any{"isArchived": "yes"}},
+		{name: "missing isArchived", archive: map[string]any{"changedAt": "2026-10-28T00:00:00Z"}, wantMessage: "archive.isArchived is required"},
+		{name: "non-boolean isArchived", archive: map[string]any{"isArchived": "yes"}, wantMessage: "archive.isArchived must be a boolean"},
+		{name: "time.Time changedAt", archive: map[string]any{"isArchived": false, "changedAt": time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)}},
 		{name: "invalid changedAt", archive: map[string]any{"isArchived": true, "changedAt": "yesterday"}},
 		{name: "non-string changedAt", archive: map[string]any{"isArchived": true, "changedAt": 12345}},
 		{name: "null changedAt", archive: map[string]any{"isArchived": false, "changedAt": nil}},
@@ -197,6 +215,9 @@ func TestWriteMetadataRejectsInvalidArchive(t *testing.T) {
 			_, err = shelff.WriteMetadata(pdfPath, map[string]any{"archive": tt.archive})
 			if !errors.Is(err, shelff.ErrInvalidFieldValue) {
 				t.Fatalf("WriteMetadata error = %v, want ErrInvalidFieldValue", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantMessage) {
+				t.Fatalf("WriteMetadata error = %q, want it to contain %q", err, tt.wantMessage)
 			}
 
 			after, err := os.ReadFile(shelff.SidecarPath(pdfPath))

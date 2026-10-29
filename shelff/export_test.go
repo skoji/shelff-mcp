@@ -6,7 +6,8 @@ import (
 )
 
 // SetTimeNowForTest replaces the package clock until the test ends.
-// Callers must not use t.Parallel, because the clock is package-global.
+// Tests that use this helper must not call t.Parallel, because the clock is
+// package-global.
 func SetTimeNowForTest(t testing.TB, now time.Time) {
 	t.Helper()
 
