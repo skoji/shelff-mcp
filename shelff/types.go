@@ -177,6 +177,8 @@ type LibraryStats struct {
 	CategoryCounts   map[string]int
 	TagCounts        map[string]int
 	StatusCounts     map[string]int
+	// Archived counts books whose archive.isArchived is true.
+	Archived int
 }
 
 // CheckLibraryResult holds the result of a library diagnostic check.

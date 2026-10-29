@@ -189,6 +189,10 @@ func (l *Library) Stats() (*LibraryStats, error) {
 			status = string(*meta.Reading.Status)
 		}
 		stats.StatusCounts[status]++
+
+		if meta.Archive != nil && meta.Archive.IsArchived {
+			stats.Archived++
+		}
 	}
 
 	return stats, nil
