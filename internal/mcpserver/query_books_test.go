@@ -334,8 +334,8 @@ func TestQueryBooksRejectsInvalidInput(t *testing.T) {
 
 	assertToolErrorContains(t, session, "query_books", map[string]any{"limit": 0}, ErrInvalidLimit.Error())
 	assertToolErrorContains(t, session, "query_books", map[string]any{"offset": -1}, ErrInvalidOffset.Error())
-	assertToolErrorContains(t, session, "query_books", map[string]any{"tagMatch": "some"}, shelff.ErrInvalidTagMatch.Error())
-	assertToolErrorContains(t, session, "query_books", map[string]any{"status": "done"}, shelff.ErrInvalidStatusFilter.Error())
+	assertToolErrorContains(t, session, "query_books", map[string]any{"tagMatch": "some"}, "/properties/tagMatch: enum")
+	assertToolErrorContains(t, session, "query_books", map[string]any{"status": "done"}, "/properties/status: enum")
 	assertToolTraversalError(t, session, "query_books", map[string]any{"directory": "../outside"})
 	assertToolTraversalError(t, session, "query_books", map[string]any{"directory": "escape"})
 }
