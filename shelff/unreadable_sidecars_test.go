@@ -73,8 +73,8 @@ func TestStatsReportsNoUnreadableSidecarsAsEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"UnreadableSidecars":[]`) {
-		t.Fatalf("JSON = %s, want UnreadableSidecars:[]", data)
+	if !strings.Contains(string(data), `"unreadableSidecars":[]`) {
+		t.Fatalf("JSON = %s, want unreadableSidecars:[]", data)
 	}
 }
 
