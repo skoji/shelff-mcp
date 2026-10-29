@@ -191,7 +191,7 @@ func (s *Server) registerTools() {
 	}, s.createSidecar)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "write_metadata",
-		Description: "Apply a partial metadata update for a PDF, creating a sidecar first if needed.",
+		Description: "Apply a partial metadata update for a PDF, creating a sidecar first if needed. Archive or unarchive with {\"archive\": {\"isArchived\": true}} (or false); changedAt is stamped with the current UTC time only when the state actually changes. An archive object with an explicit changedAt replaces the stored one only if it is not older.",
 	}, s.writeMetadata)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "delete_sidecar",
