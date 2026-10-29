@@ -3,6 +3,7 @@ package shelff
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -471,11 +472,11 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 
 		meta, err := ParseSidecarJSON(data)
 		if err != nil {
-			// The archive issue is already reported; keep checking the rest.
-			if len(archiveErrors) > 0 {
-				continue
+			if len(archiveErrors) == 0 || !readableWithoutArchive(raw) {
+				return nil, err
 			}
-			return nil, err
+			// The archive issue is already reported; keep checking the rest.
+			continue
 		}
 		if meta.Category != nil {
 			usedCategories[*meta.Category] = struct{}{}
@@ -531,6 +532,15 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 			WithoutSidecar: len(books) - withSidecar,
 		},
 	}, nil
+}
+
+// readableWithoutArchive reports whether a decoded sidecar parses once its
+// archive is removed, i.e. whether archive alone made the typed read fail.
+func readableWithoutArchive(raw map[string]any) bool {
+	withoutArchive := maps.Clone(raw)
+	delete(withoutArchive, "archive")
+	_, err := mapToSidecar(withoutArchive)
+	return err == nil
 }
 
 // relativeLibraryPath returns path relative to the library root, or path

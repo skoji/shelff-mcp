@@ -30,8 +30,11 @@ func parseArchivePatch(raw any) (archivePatch, error) {
 		return archivePatch{}, fmt.Errorf("%w: archive.isArchived must be a boolean", ErrInvalidFieldValue)
 	}
 
-	switch value := object["changedAt"].(type) {
-	case nil:
+	rawChangedAt, present := object["changedAt"]
+	if !present {
+		return patch, nil
+	}
+	switch value := rawChangedAt.(type) {
 	case string:
 		parsed, err := time.Parse(time.RFC3339, value)
 		if err != nil {
