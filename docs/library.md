@@ -124,7 +124,7 @@ Once a library is open, you can inspect it with:
 
 - `ScanBooks(recursive bool)`
 - `ScanBooksInDirectory(directoryPath string, recursive bool)`
-- `QueryBooksInDirectory(directoryPath string, recursive bool, filter BookFilter)` to search books by sidecar contents (category, tags, reading status, collection, archive state). Books without a sidecar are excluded, a pointer to an empty value matches books where that field is unset, and unparsable sidecars are reported in `Warnings`
+- `QueryBooksInDirectory(directoryPath string, recursive bool, filter BookFilter)` to search books by sidecar contents (category, tags, reading status, collection, archive state). Books without a sidecar are excluded, a pointer to an empty value matches books where that field is unset (an empty category or collection title in a sidecar also counts as unset), and sidecars that are unparsable or disappear during the query are reported in `Warnings`. In each `BookSummary`, unset fields are omitted from JSON, and an empty `tags` array is omitted too
 - `FindOrphanedSidecars()`
 - `Stats()`
 - `CollectAllTags()`

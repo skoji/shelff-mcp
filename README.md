@@ -89,7 +89,7 @@ Once configured, ask your AI agent things like:
 
 ### Claude and large scan results
 
-When using Claude, `scan_books` results may be truncated if your library is large. Use the `directory`, `limit`, and `offset` parameters to paginate through results, or scan specific subdirectories.
+When using Claude, `scan_books` results may be truncated if your library is large. Use the `directory`, `limit`, and `offset` parameters to paginate through results, or scan specific subdirectories. To narrow books down by sidecar contents (category, tags, reading status, collection, archive state), use `query_books` instead.
 
 ### Root path rules
 
