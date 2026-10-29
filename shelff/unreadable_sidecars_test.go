@@ -174,3 +174,25 @@ func TestCheckLibraryReportsNoUnreadableSidecarsAsEmptyList(t *testing.T) {
 		t.Fatalf("UnreadableSidecars = %#v, want empty non-nil slice", result.UnreadableSidecars)
 	}
 }
+
+func TestCheckLibraryReportsWronglyTypedFieldAsUnreadable(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := openTestLibrary(t, root)
+	bad := writeTestPDF(t, root, "bad.pdf")
+	writeRawJSONFile(t, shelff.SidecarPath(bad), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "bad"},
+  "tags": 123
+}`)
+
+	result, err := library.CheckLibrary()
+	if err != nil {
+		t.Fatalf("CheckLibrary returned error: %v", err)
+	}
+	assertOneUnreadable(t, result.UnreadableSidecars, "bad.pdf.meta.json")
+	if len(result.InvalidArchives) != 0 {
+		t.Fatalf("InvalidArchives = %+v, want none", result.InvalidArchives)
+	}
+}

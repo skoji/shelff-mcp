@@ -1442,6 +1442,19 @@ func TestArchiveStateThroughTools(t *testing.T) {
 		t.Fatalf("check_library unreadableSidecars = %#v, want one entry", checkOut["unreadableSidecars"])
 	}
 
+	unreadableStatsResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "library_stats",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("library_stats error = %v", err)
+	}
+	var unreadableStatsOut map[string]any
+	decodeStructuredContent(t, unreadableStatsResult, &unreadableStatsOut)
+	if unreadable, ok := unreadableStatsOut["UnreadableSidecars"].([]any); !ok || len(unreadable) != 1 {
+		t.Fatalf("library_stats UnreadableSidecars = %#v, want one entry", unreadableStatsOut["UnreadableSidecars"])
+	}
+
 	tagsResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "collect_all_tags",
 		Arguments: map[string]any{},

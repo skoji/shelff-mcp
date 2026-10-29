@@ -144,12 +144,11 @@ func (l *Library) Stats() (*LibraryStats, error) {
 	}
 
 	stats := &LibraryStats{
-		CategoryCounts:   make(map[string]int),
-		TagCounts:        make(map[string]int),
-		StatusCounts:     make(map[string]int),
-		OrphanedSidecars: len(orphaned),
-		TotalPDFs:        len(books),
-
+		CategoryCounts:     make(map[string]int),
+		TagCounts:          make(map[string]int),
+		StatusCounts:       make(map[string]int),
+		OrphanedSidecars:   len(orphaned),
+		TotalPDFs:          len(books),
 		UnreadableSidecars: make([]UnreadableSidecar, 0),
 	}
 
@@ -551,11 +550,10 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 	}
 
 	return &CheckLibraryResult{
-		DotShelff:        dotShelff,
-		Integrity:        integrity,
-		OrphanedSidecars: orphanedPaths,
-		InvalidArchives:  invalidArchives,
-
+		DotShelff:          dotShelff,
+		Integrity:          integrity,
+		OrphanedSidecars:   orphanedPaths,
+		InvalidArchives:    invalidArchives,
 		UnreadableSidecars: unreadableSidecars,
 		Summary: LibrarySummary{
 			TotalPDFs:      len(books),
