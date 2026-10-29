@@ -107,6 +107,7 @@ Claudeを使用する場合、ライブラリが大きいと `scan_books` の結
 | `get_specification` | shelffの仕様を取得（概要、サイドカー/カテゴリ/タグスキーマ） |
 | `read_metadata` | PDFのメタデータを読み取り（サイドカーがなくても最小メタデータを返す） |
 | `scan_books` | ページネーションとディレクトリフィルタ付きで本を一覧 |
+| `query_books` | サイドカーのある本をカテゴリ・タグ・読書状態・コレクション・アーカイブ状態で検索し、各本の薄いサマリーを返す |
 | `find_orphaned_sidecars` | 対応するPDFのないサイドカーを検出 |
 | `validate_sidecar` | サイドカーをスキーマに対して検証 |
 | `library_stats` | ライブラリの統計情報を取得 |

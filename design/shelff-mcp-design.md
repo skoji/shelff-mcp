@@ -647,6 +647,7 @@ SHELFF_ROOT=/path/to/shelff/Documents shelff-mcp
 | `move_book` | `MoveBook` | |
 | `rename_book` | `RenameBook` | |
 | `scan_books` | `Library.ScanBooks` | |
+| `query_books` | `Library.QueryBooksInDirectory` | Books without sidecar are excluded; empty filter value means unset; `recursive` defaults to true |
 | `find_orphaned_sidecars` | `Library.FindOrphanedSidecars` | |
 | `validate_sidecar` | `Library.Validate` | |
 | `library_stats` | `Library.Stats` | |

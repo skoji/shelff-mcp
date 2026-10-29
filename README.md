@@ -107,6 +107,7 @@ When using Claude, `scan_books` results may be truncated if your library is larg
 | `get_specification` | Retrieve the shelff spec (overview, sidecar/categories/tags schema) |
 | `read_metadata` | Read metadata for a PDF (returns minimal metadata even without sidecar) |
 | `scan_books` | List books with pagination and directory filtering |
+| `query_books` | Search books with sidecars by category, tags, reading status, collection, or archive state, returning a compact summary of each match |
 | `find_orphaned_sidecars` | Find sidecar files with no matching PDF |
 | `validate_sidecar` | Validate a sidecar against the schema |
 | `library_stats` | Get library statistics |

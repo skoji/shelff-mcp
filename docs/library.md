@@ -124,6 +124,7 @@ Once a library is open, you can inspect it with:
 
 - `ScanBooks(recursive bool)`
 - `ScanBooksInDirectory(directoryPath string, recursive bool)`
+- `QueryBooksInDirectory(directoryPath string, recursive bool, filter BookFilter)` to search books by sidecar contents (category, tags, reading status, collection, archive state). Books without a sidecar are excluded, a pointer to an empty value matches books where that field is unset, and unparsable sidecars are reported in `Warnings`
 - `FindOrphanedSidecars()`
 - `Stats()`
 - `CollectAllTags()`
@@ -268,6 +269,7 @@ Category/tag cascade operations update sidecars sequentially. If one sidecar wri
 - `(*Library).ReorderTags(names []string) error`
 - `(*Library).ScanBooks(recursive bool) ([]BookEntry, error)`
 - `(*Library).ScanBooksInDirectory(directoryPath string, recursive bool) ([]BookEntry, error)`
+- `(*Library).QueryBooksInDirectory(directoryPath string, recursive bool, filter BookFilter) (*QueryBooksResult, error)`
 - `(*Library).FindOrphanedSidecars() ([]OrphanedSidecar, error)`
 - `(*Library).Validate(pdfPath string) ([]string, error)`
 - `(*Library).Stats() (*LibraryStats, error)`
@@ -290,6 +292,9 @@ The main exported structs are:
 - `CategoryItem`
 - `TagOrder`
 - `BookEntry`
+- `BookFilter`
+- `BookSummary`
+- `QueryBooksResult`
 - `OrphanedSidecar`
 - `LibraryStats`
 - `CheckLibraryResult`
@@ -302,6 +307,7 @@ Useful exported constants include:
 
 - `SchemaVersion`
 - reading status values: `StatusUnread`, `StatusReading`, `StatusFinished`
+- tag match values: `TagMatchAny`, `TagMatchAll`
 - display direction values: `DirectionLTR`, `DirectionRTL`
 - page layout values: `LayoutSingle`, `LayoutSpread`, `LayoutSpreadWithCover`
 
@@ -322,6 +328,8 @@ Some commonly returned errors:
 - `ErrNilSidecarMetadata`
 - `ErrPathOutsideRoot`
 - `ErrDirectoryNotEmpty`
+- `ErrInvalidTagMatch`
+- `ErrInvalidStatusFilter`
 
 `RollbackError` indicates that both the original operation and the rollback failed.
 
