@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -197,6 +198,30 @@ func TestQueryBooksFiltersAndPaginates(t *testing.T) {
 	}
 	if warnings, ok := out["warnings"].([]any); !ok || len(warnings) != 0 {
 		t.Fatalf("directory warnings = %#v, want empty array", out["warnings"])
+	}
+}
+
+func TestQueryBooksHandlesHugeLimit(t *testing.T) {
+	t.Parallel()
+
+	root := setupQueryBooksRoot(t)
+	server := newTestServer(t, root)
+
+	offset := 1
+	limit := math.MaxInt
+	_, out, err := server.queryBooks(context.Background(), nil, queryBooksInput{Offset: &offset, Limit: &limit})
+	if err != nil {
+		t.Fatalf("queryBooks error = %v", err)
+	}
+	paths := make([]string, 0, len(out.Books))
+	for _, book := range out.Books {
+		paths = append(paths, book.PDFPath)
+	}
+	if want := []string{"b.pdf", "sub/c.pdf"}; !slices.Equal(paths, want) {
+		t.Fatalf("pdfPaths = %v, want %v", paths, want)
+	}
+	if out.Total != 3 || out.HasMore {
+		t.Fatalf("page info = %#v, want total=3 hasMore=false", out)
 	}
 }
 
