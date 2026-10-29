@@ -1409,8 +1409,17 @@ func TestArchiveStateThroughTools(t *testing.T) {
 	}
 	var statsOut map[string]any
 	decodeStructuredContent(t, statsResult, &statsOut)
-	if statsOut["Archived"] != float64(1) {
-		t.Fatalf("library_stats = %#v, want Archived=1", statsOut)
+	if statsOut["archived"] != float64(1) {
+		t.Fatalf("library_stats = %#v, want archived=1", statsOut)
+	}
+	wantStatsKeys := []string{"totalPDFs", "withSidecar", "withoutSidecar", "orphanedSidecars", "categoryCounts", "tagCounts", "statusCounts", "archived", "unreadableSidecars"}
+	if len(statsOut) != len(wantStatsKeys) {
+		t.Fatalf("library_stats keys = %#v, want exactly %v", statsOut, wantStatsKeys)
+	}
+	for _, key := range wantStatsKeys {
+		if _, ok := statsOut[key]; !ok {
+			t.Fatalf("library_stats missing key %q: %#v", key, statsOut)
+		}
 	}
 
 	badPDF := writeTestPDF(t, root, "bad.pdf")
@@ -1451,8 +1460,8 @@ func TestArchiveStateThroughTools(t *testing.T) {
 	}
 	var unreadableStatsOut map[string]any
 	decodeStructuredContent(t, unreadableStatsResult, &unreadableStatsOut)
-	if unreadable, ok := unreadableStatsOut["UnreadableSidecars"].([]any); !ok || len(unreadable) != 1 {
-		t.Fatalf("library_stats UnreadableSidecars = %#v, want one entry", unreadableStatsOut["UnreadableSidecars"])
+	if unreadable, ok := unreadableStatsOut["unreadableSidecars"].([]any); !ok || len(unreadable) != 1 {
+		t.Fatalf("library_stats unreadableSidecars = %#v, want one entry", unreadableStatsOut["unreadableSidecars"])
 	}
 
 	tagsResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
