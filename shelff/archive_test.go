@@ -272,7 +272,7 @@ func TestCheckLibraryReportsInvalidArchives(t *testing.T) {
   "schemaVersion": 1,
   "metadata": {"dc:title": "missing"},
   "tags": ["kept"],
-  "archive": {"isArchived": true, "archivedAt": "2026-10-27T01:02:03Z"}
+  "archive": {"isArchived": true, "changedAt": "2026-10-27T01:02:03Z", "archivedAt": "2026-10-27T01:02:03Z"}
 }`)
 	// Problems outside archive are not archive issues.
 	otherPDF := writeTestPDF(t, root, "other.pdf")
@@ -294,8 +294,8 @@ func TestCheckLibraryReportsInvalidArchives(t *testing.T) {
 	if missing.SidecarPath != "missing.pdf.meta.json" {
 		t.Fatalf("InvalidArchives[0].SidecarPath = %q, want missing.pdf.meta.json", missing.SidecarPath)
 	}
-	if joined := strings.Join(missing.Errors, "\n"); !strings.Contains(joined, "changedAt") || !strings.Contains(joined, "archivedAt") {
-		t.Fatalf("InvalidArchives[0].Errors = %q, want missing changedAt and unknown archivedAt", missing.Errors)
+	if joined := strings.Join(missing.Errors, "\n"); !strings.Contains(joined, "archivedAt") {
+		t.Fatalf("InvalidArchives[0].Errors = %q, want unknown archivedAt reported", missing.Errors)
 	}
 	badTime := result.InvalidArchives[1]
 	if badTime.SidecarPath != filepath.Join("nested", "badtime.pdf.meta.json") {

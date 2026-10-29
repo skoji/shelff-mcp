@@ -186,7 +186,16 @@ type CheckLibraryResult struct {
 	DotShelff        DotShelffStatus `json:"dotShelff"`
 	Integrity        IntegrityReport `json:"integrity"`
 	OrphanedSidecars []string        `json:"orphanedSidecars"`
+	InvalidArchives  []SidecarIssue  `json:"invalidArchives"`
 	Summary          LibrarySummary  `json:"summary"`
+}
+
+// SidecarIssue lists schema violations found in one sidecar.
+type SidecarIssue struct {
+	// SidecarPath is relative to the library root.
+	SidecarPath string `json:"sidecarPath"`
+	// Errors are schema validation messages, each prefixed with its JSON path.
+	Errors []string `json:"errors"`
 }
 
 // DotShelffStatus reports existence of the .shelff directory and config files.

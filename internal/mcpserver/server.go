@@ -223,7 +223,7 @@ func (s *Server) registerTools() {
 	}, s.libraryStats)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "check_library",
-		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, and book counts.",
+		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, sidecars with an invalid archive object, and book counts.",
 	}, s.checkLibrary)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "collect_all_tags",
