@@ -1438,4 +1438,23 @@ func TestArchiveStateThroughTools(t *testing.T) {
 	if errs, ok := issue["errors"].([]any); !ok || len(errs) == 0 {
 		t.Fatalf("invalidArchives[0] = %#v, want errors", issue)
 	}
+	if unreadable, ok := checkOut["unreadableSidecars"].([]any); !ok || len(unreadable) != 1 {
+		t.Fatalf("check_library unreadableSidecars = %#v, want one entry", checkOut["unreadableSidecars"])
+	}
+
+	tagsResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "collect_all_tags",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("collect_all_tags error = %v", err)
+	}
+	if tagsResult.IsError {
+		t.Fatalf("collect_all_tags returned tool error: %#v", tagsResult.Content)
+	}
+	var tagsOut collectAllTagsOutput
+	decodeStructuredContent(t, tagsResult, &tagsOut)
+	if len(tagsOut.UnreadableSidecars) != 1 || tagsOut.UnreadableSidecars[0].SidecarPath != "bad.pdf.meta.json" {
+		t.Fatalf("collect_all_tags unreadableSidecars = %#v, want bad.pdf.meta.json", tagsOut.UnreadableSidecars)
+	}
 }

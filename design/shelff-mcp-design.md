@@ -182,6 +182,19 @@ type LibraryStats struct {
     TagCounts         map[string]int  // tag name → count of PDFs
     StatusCounts      map[string]int  // reading status → count of PDFs ("unread"/"reading"/"finished"/""(no reading data))
     Archived          int             // count of PDFs whose archive.isArchived is true
+    UnreadableSidecars []UnreadableSidecar // sidecars that could not be parsed (counted in WithSidecar, excluded from other aggregates)
+}
+
+// UnreadableSidecar reports a sidecar that exists but could not be parsed.
+type UnreadableSidecar struct {
+    SidecarPath string `json:"sidecarPath"` // relative to the library root
+    Error       string `json:"error"`
+}
+
+// CollectAllTagsResult holds the tag union and the sidecars skipped because they could not be parsed.
+type CollectAllTagsResult struct {
+    Tags               []string
+    UnreadableSidecars []UnreadableSidecar
 }
 
 // CheckLibraryResult holds the result of a library diagnostic check (check_library).
@@ -190,6 +203,7 @@ type CheckLibraryResult struct {
     Integrity        IntegrityReport `json:"integrity"`         // undefined/unused categories and tags
     OrphanedSidecars []string        `json:"orphanedSidecars"`  // relative to the library root
     InvalidArchives  []SidecarIssue  `json:"invalidArchives"`   // sidecars whose archive object violates the schema
+    UnreadableSidecars []UnreadableSidecar `json:"unreadableSidecars"` // sidecars that could not be parsed; excluded from integrity
     Summary          LibrarySummary  `json:"summary"`
 }
 
@@ -444,14 +458,14 @@ func (l *Library) Stats() (*LibraryStats, error)
 
 // CollectAllTags scans all sidecar files and returns the union of all tags.
 // This is the canonical tag set — tags.json only defines display order.
-func (l *Library) CollectAllTags() ([]string, error)
+func (l *Library) CollectAllTags() (*CollectAllTagsResult, error)
 
 // CheckLibrary runs diagnostic checks: config file presence, category/tag
 // integrity, orphaned sidecars, invalid archive objects, and book counts.
 func (l *Library) CheckLibrary() (*CheckLibraryResult, error)
 ```
 
-`CheckLibrary` validates each sidecar's `archive` subtree against the embedded schema (required `isArchived`/`changedAt`, `date-time` format, no additional properties) and lists violations in `invalidArchives`. A sidecar whose typed read fails because of its `archive` (e.g. an unparseable `changedAt`) is still counted in `summary.withSidecar` and reported, but is skipped for category/tag integrity instead of failing the whole check. Other unreadable sidecars still make the check fail.
+`CheckLibrary` validates each sidecar's `archive` subtree against the embedded schema (required `isArchived`/`changedAt`, `date-time` format, no additional properties) and lists violations in `invalidArchives`. A sidecar that cannot be parsed, whatever the cause (malformed JSON, an unparseable `changedAt`, a wrongly typed field), is still counted in `summary.withSidecar` and reported in `unreadableSidecars`, but is skipped for category/tag integrity instead of failing the whole check. `invalidArchives` and `unreadableSidecars` are independent: a sidecar with an unparseable `archive.changedAt` appears in both. `library_stats` and `collect_all_tags` likewise report unparsable sidecars in `UnreadableSidecars` and skip them. Only I/O errors fail these operations; `read_metadata` on such a sidecar still returns the error.
 
 ## 5. Behavior Specifications
 
