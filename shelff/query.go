@@ -3,7 +3,6 @@ package shelff
 import (
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -145,11 +144,12 @@ func (l *Library) Stats() (*LibraryStats, error) {
 	}
 
 	stats := &LibraryStats{
-		CategoryCounts:   make(map[string]int),
-		TagCounts:        make(map[string]int),
-		StatusCounts:     make(map[string]int),
-		OrphanedSidecars: len(orphaned),
-		TotalPDFs:        len(books),
+		CategoryCounts:     make(map[string]int),
+		TagCounts:          make(map[string]int),
+		StatusCounts:       make(map[string]int),
+		OrphanedSidecars:   len(orphaned),
+		TotalPDFs:          len(books),
+		UnreadableSidecars: make([]UnreadableSidecar, 0),
 	}
 
 	for _, book := range books {
@@ -161,9 +161,13 @@ func (l *Library) Stats() (*LibraryStats, error) {
 
 		stats.WithSidecar++
 
-		meta, err := ReadSidecar(book.PDFPath)
+		meta, unreadable, err := l.readSidecarTolerant(book.PDFPath)
 		if err != nil {
 			return nil, err
+		}
+		if unreadable != nil {
+			stats.UnreadableSidecars = append(stats.UnreadableSidecars, *unreadable)
+			continue
 		}
 		if meta == nil {
 			stats.WithoutSidecar++
@@ -201,21 +205,26 @@ func (l *Library) Stats() (*LibraryStats, error) {
 
 // CollectAllTags scans all sidecar files and returns the union of all tags.
 // This is the canonical tag set — tags.json only defines display order.
-func (l *Library) CollectAllTags() ([]string, error) {
+func (l *Library) CollectAllTags() (*CollectAllTagsResult, error) {
 	books, err := l.ScanBooks(true)
 	if err != nil {
 		return nil, err
 	}
 
 	tagSet := make(map[string]struct{})
+	unreadableSidecars := make([]UnreadableSidecar, 0)
 	for _, book := range books {
 		if !book.HasSidecar {
 			continue
 		}
 
-		meta, err := ReadSidecar(book.PDFPath)
+		meta, unreadable, err := l.readSidecarTolerant(book.PDFPath)
 		if err != nil {
 			return nil, err
+		}
+		if unreadable != nil {
+			unreadableSidecars = append(unreadableSidecars, *unreadable)
+			continue
 		}
 		if meta == nil {
 			continue
@@ -254,7 +263,26 @@ func (l *Library) CollectAllTags() ([]string, error) {
 	sort.Strings(extras)
 	result = append(result, extras...)
 
-	return result, nil
+	return &CollectAllTagsResult{Tags: result, UnreadableSidecars: unreadableSidecars}, nil
+}
+
+// readSidecarTolerant reads a sidecar like ReadSidecar, but reports content
+// that cannot be parsed as an UnreadableSidecar instead of an error so that
+// aggregate operations can go on. I/O errors are still returned.
+func (l *Library) readSidecarTolerant(pdfPath string) (*SidecarMetadata, *UnreadableSidecar, error) {
+	sidecarPath := SidecarPath(pdfPath)
+	data, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	meta, err := ParseSidecarJSON(data)
+	if err != nil {
+		return nil, &UnreadableSidecar{SidecarPath: l.relativeLibraryPath(sidecarPath), Error: err.Error()}, nil
+	}
+	return meta, nil, nil
 }
 
 func (l *Library) walkLibraryFiles(recursive bool, visit func(path string, d fs.DirEntry) error) error {
@@ -440,6 +468,7 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 	usedCategories := make(map[string]struct{})
 	usedTags := make(map[string]struct{})
 	invalidArchives := make([]SidecarIssue, 0)
+	unreadableSidecars := make([]UnreadableSidecar, 0)
 	withSidecar := 0
 	for _, book := range books {
 		if !book.HasSidecar {
@@ -453,11 +482,13 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 			}
 			return nil, err
 		}
+		withSidecar++
+		relPath := l.relativeLibraryPath(sidecarPath)
 		raw, err := jsonBytesToMap(data)
 		if err != nil {
-			return nil, err
+			unreadableSidecars = append(unreadableSidecars, UnreadableSidecar{SidecarPath: relPath, Error: err.Error()})
+			continue
 		}
-		withSidecar++
 
 		archiveErrors, err := validateSidecarProperty(raw, "archive")
 		if err != nil {
@@ -465,17 +496,14 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 		}
 		if len(archiveErrors) > 0 {
 			invalidArchives = append(invalidArchives, SidecarIssue{
-				SidecarPath: l.relativeLibraryPath(sidecarPath),
+				SidecarPath: relPath,
 				Errors:      archiveErrors,
 			})
 		}
 
 		meta, err := ParseSidecarJSON(data)
 		if err != nil {
-			if len(archiveErrors) == 0 || !readableWithoutArchive(raw) {
-				return nil, err
-			}
-			// The archive issue is already reported; keep checking the rest.
+			unreadableSidecars = append(unreadableSidecars, UnreadableSidecar{SidecarPath: relPath, Error: err.Error()})
 			continue
 		}
 		if meta.Category != nil {
@@ -522,25 +550,17 @@ func (l *Library) CheckLibrary() (*CheckLibraryResult, error) {
 	}
 
 	return &CheckLibraryResult{
-		DotShelff:        dotShelff,
-		Integrity:        integrity,
-		OrphanedSidecars: orphanedPaths,
-		InvalidArchives:  invalidArchives,
+		DotShelff:          dotShelff,
+		Integrity:          integrity,
+		OrphanedSidecars:   orphanedPaths,
+		InvalidArchives:    invalidArchives,
+		UnreadableSidecars: unreadableSidecars,
 		Summary: LibrarySummary{
 			TotalPDFs:      len(books),
 			WithSidecar:    withSidecar,
 			WithoutSidecar: len(books) - withSidecar,
 		},
 	}, nil
-}
-
-// readableWithoutArchive reports whether a decoded sidecar parses once its
-// archive is removed, i.e. whether archive alone made the typed read fail.
-func readableWithoutArchive(raw map[string]any) bool {
-	withoutArchive := maps.Clone(raw)
-	delete(withoutArchive, "archive")
-	_, err := mapToSidecar(withoutArchive)
-	return err == nil
 }
 
 // relativeLibraryPath returns path relative to the library root, or path

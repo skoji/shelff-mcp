@@ -231,6 +231,23 @@ type LibraryStats struct {
 	StatusCounts     map[string]int
 	// Archived counts books whose archive.isArchived is true.
 	Archived int
+	// UnreadableSidecars lists sidecars that could not be parsed. They are
+	// counted in WithSidecar but excluded from the other aggregates.
+	UnreadableSidecars []UnreadableSidecar
+}
+
+// UnreadableSidecar reports a sidecar that exists but could not be parsed.
+type UnreadableSidecar struct {
+	// SidecarPath is relative to the library root.
+	SidecarPath string `json:"sidecarPath"`
+	Error       string `json:"error"`
+}
+
+// CollectAllTagsResult holds the tags found in readable sidecars and the
+// sidecars that were skipped because they could not be parsed.
+type CollectAllTagsResult struct {
+	Tags               []string
+	UnreadableSidecars []UnreadableSidecar
 }
 
 // CheckLibraryResult holds the result of a library diagnostic check.
@@ -239,7 +256,9 @@ type CheckLibraryResult struct {
 	Integrity        IntegrityReport `json:"integrity"`
 	OrphanedSidecars []string        `json:"orphanedSidecars"`
 	InvalidArchives  []SidecarIssue  `json:"invalidArchives"`
-	Summary          LibrarySummary  `json:"summary"`
+	// UnreadableSidecars are excluded from the integrity report.
+	UnreadableSidecars []UnreadableSidecar `json:"unreadableSidecars"`
+	Summary            LibrarySummary      `json:"summary"`
 }
 
 // SidecarIssue lists schema violations found in one sidecar.

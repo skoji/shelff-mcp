@@ -150,7 +150,8 @@ type deleteSidecarOutput struct {
 }
 
 type collectAllTagsOutput struct {
-	Tags []string `json:"tags"`
+	Tags               []string                   `json:"tags"`
+	UnreadableSidecars []shelff.UnreadableSidecar `json:"unreadableSidecars"`
 }
 
 type listDirectoriesInput struct {
@@ -261,15 +262,15 @@ func (s *Server) registerTools() error {
 	}, s.validateSidecar)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "library_stats",
-		Description: "Compute aggregate statistics for the library.",
+		Description: "Compute aggregate statistics for the library. Sidecars that cannot be parsed are reported in UnreadableSidecars and skipped.",
 	}, s.libraryStats)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "check_library",
-		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, sidecars with an invalid archive object, and book counts.",
+		Description: "Run diagnostic checks: config file presence, category/tag integrity, orphaned sidecars, sidecars with an invalid archive object, and book counts. Sidecars that cannot be parsed are reported in unreadableSidecars and excluded from the integrity check.",
 	}, s.checkLibrary)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "collect_all_tags",
-		Description: "Collect all tags in display order, then append uncategorized tags alphabetically.",
+		Description: "Collect all tags in display order, then append uncategorized tags alphabetically. Sidecars that cannot be parsed are reported in unreadableSidecars and skipped.",
 	}, s.collectAllTags)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "list_directories",
@@ -660,11 +661,11 @@ func (s *Server) checkLibrary(_ context.Context, _ *mcp.CallToolRequest, _ struc
 }
 
 func (s *Server) collectAllTags(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, collectAllTagsOutput, error) {
-	tags, err := s.library.CollectAllTags()
+	result, err := s.library.CollectAllTags()
 	if err != nil {
 		return nil, collectAllTagsOutput{}, err
 	}
-	return nil, collectAllTagsOutput{Tags: tags}, nil
+	return nil, collectAllTagsOutput{Tags: result.Tags, UnreadableSidecars: result.UnreadableSidecars}, nil
 }
 
 func (s *Server) readCategories(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, readCategoriesOutput, error) {

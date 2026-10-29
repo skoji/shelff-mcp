@@ -334,6 +334,10 @@ func TestCheckLibraryReportsInvalidArchives(t *testing.T) {
 		}
 	}
 
+	if len(result.UnreadableSidecars) != 1 || result.UnreadableSidecars[0].SidecarPath != filepath.Join("nested", "badtime.pdf.meta.json") {
+		t.Fatalf("UnreadableSidecars = %+v, want only nested/badtime.pdf.meta.json", result.UnreadableSidecars)
+	}
+
 	if !slices.Equal(result.Integrity.UndefinedCategories, []string{"Fiction"}) {
 		t.Fatalf("UndefinedCategories = %v, want [Fiction] with the unreadable sidecar skipped", result.Integrity.UndefinedCategories)
 	}
@@ -342,24 +346,6 @@ func TestCheckLibraryReportsInvalidArchives(t *testing.T) {
 	}
 	if result.Summary.TotalPDFs != 4 || result.Summary.WithSidecar != 4 || result.Summary.WithoutSidecar != 0 {
 		t.Fatalf("Summary = %+v, want 4/4/0", result.Summary)
-	}
-}
-
-func TestCheckLibraryFailsWhenSidecarIsUnreadableForAnotherReason(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	library := openTestLibrary(t, root)
-	pdfPath := writeTestPDF(t, root, "book.pdf")
-	writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
-  "schemaVersion": 1,
-  "metadata": {"dc:title": "book"},
-  "tags": 123,
-  "archive": {"isArchived": true}
-}`)
-
-	if _, err := library.CheckLibrary(); err == nil {
-		t.Fatal("CheckLibrary returned nil error, want the non-archive read failure reported")
 	}
 }
 

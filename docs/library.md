@@ -126,9 +126,9 @@ Once a library is open, you can inspect it with:
 - `ScanBooksInDirectory(directoryPath string, recursive bool)`
 - `QueryBooksInDirectory(directoryPath string, recursive bool, filter BookFilter)` to search books by sidecar contents (category, tags, reading status, collection, archive state). Books without a sidecar are excluded, a pointer to an empty value matches books where that field is unset (an empty category or collection title in a sidecar also counts as unset), and sidecars that are unparsable or disappear during the query are reported in `Warnings`. In each `BookSummary`, unset fields are omitted from JSON, and an empty `tags` array is omitted too
 - `FindOrphanedSidecars()`
-- `Stats()`
-- `CollectAllTags()`
-- `CheckLibrary()`
+- `Stats()`; sidecars that cannot be parsed are listed in `UnreadableSidecars` (still counted in `WithSidecar`, excluded from the other aggregates) instead of failing the call
+- `CollectAllTags()` returns a `CollectAllTagsResult` with `Tags` and `UnreadableSidecars`; unparsable sidecars are skipped and reported
+- `CheckLibrary()`; sidecars that cannot be parsed are listed in `UnreadableSidecars` and excluded from the integrity check instead of failing the call
 - `Validate(pdfPath)`
 
 ## Common usage patterns
@@ -199,6 +199,9 @@ fmt.Println("total PDFs:", stats.TotalPDFs)
 fmt.Println("with sidecar:", stats.WithSidecar)
 fmt.Println("orphaned sidecars:", stats.OrphanedSidecars)
 fmt.Println("tag counts:", stats.TagCounts)
+for _, u := range stats.UnreadableSidecars {
+	fmt.Println("unreadable:", u.SidecarPath, u.Error)
+}
 ```
 
 ## Important behaviors
@@ -273,7 +276,7 @@ Category/tag cascade operations update sidecars sequentially. If one sidecar wri
 - `(*Library).FindOrphanedSidecars() ([]OrphanedSidecar, error)`
 - `(*Library).Validate(pdfPath string) ([]string, error)`
 - `(*Library).Stats() (*LibraryStats, error)`
-- `(*Library).CollectAllTags() ([]string, error)`
+- `(*Library).CollectAllTags() (*CollectAllTagsResult, error)`
 - `(*Library).CheckLibrary() (*CheckLibraryResult, error)`
 - `(*Library).MakeDirectory(relPath string) error`
 - `(*Library).ListDirectories(directory string, recursive bool) ([]string, error)`
@@ -297,6 +300,8 @@ The main exported structs are:
 - `QueryBooksResult`
 - `OrphanedSidecar`
 - `LibraryStats`
+- `UnreadableSidecar`
+- `CollectAllTagsResult`
 - `CheckLibraryResult`
 - `SidecarIssue`
 - `DotShelffStatus`
