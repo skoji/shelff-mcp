@@ -41,6 +41,19 @@ type scanBooksInput struct {
 	Offset    *int    `json:"offset,omitempty" jsonschema:"Number of filtered books to skip before returning results. Defaults to 0."`
 }
 
+type queryBooksInput struct {
+	Directory  *string   `json:"directory,omitempty" jsonschema:"Optional directory relative to the library root. Defaults to the root directory."`
+	Recursive  *bool     `json:"recursive,omitempty" jsonschema:"Whether to search subdirectories recursively. Defaults to true."`
+	Category   *string   `json:"category,omitempty" jsonschema:"Exact, case-sensitive category match. An empty string matches books without a category."`
+	Tags       *[]string `json:"tags,omitempty" jsonschema:"Exact, case-sensitive tags to match, combined according to tagMatch. An empty array matches books with no tags."`
+	TagMatch   string    `json:"tagMatch,omitempty" jsonschema:"How multiple tags are combined: \"any\" (default) or \"all\"."`
+	Status     *string   `json:"status,omitempty" jsonschema:"reading.status to match: \"unread\", \"reading\", or \"finished\". An empty string matches books without reading.status (including books without a reading block); \"unread\" does not include them."`
+	Collection *string   `json:"collection,omitempty" jsonschema:"Exact, case-sensitive collection.title match. An empty string matches books without a collection."`
+	Archived   *bool     `json:"archived,omitempty" jsonschema:"archive.isArchived to match. false also matches books without an archive block. Omit to include both."`
+	Limit      *int      `json:"limit,omitempty" jsonschema:"Maximum number of books to return. Defaults to 100."`
+	Offset     *int      `json:"offset,omitempty" jsonschema:"Number of matching books to skip before returning results. Defaults to 0."`
+}
+
 type writeMetadataInput struct {
 	PDFPath  string         `json:"pdfPath" jsonschema:"Path to a PDF relative to the library root."`
 	Metadata map[string]any `json:"metadata" jsonschema:"Partial metadata object to merge into the existing metadata."`
@@ -106,6 +119,15 @@ type bookEntryOutput struct {
 	PDFPath     string  `json:"pdfPath"`
 	SidecarPath *string `json:"sidecarPath,omitempty"`
 	HasSidecar  bool    `json:"hasSidecar"`
+}
+
+type queryBooksOutput struct {
+	Books    []shelff.BookSummary `json:"books"`
+	Total    int                  `json:"total"`
+	Offset   int                  `json:"offset"`
+	Limit    int                  `json:"limit"`
+	HasMore  bool                 `json:"hasMore"`
+	Warnings []string             `json:"warnings"`
 }
 
 type orphanedSidecarsOutput struct {
@@ -209,6 +231,11 @@ func (s *Server) registerTools() {
 		Name:        "scan_books",
 		Description: "Scan the library for PDF files and whether they have sidecars, with optional directory filtering and pagination.",
 	}, s.scanBooks)
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "query_books",
+		Description: "Search books by sidecar contents (category, tags, reading status, collection, archive state) and return a compact summary of each match. All filters are optional, exact-match, and combined with AND; an empty value matches books where that field is unset. Books without a sidecar are excluded; use scan_books to list every PDF. Unparsable sidecars are skipped and reported in warnings.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, s.queryBooks)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "find_orphaned_sidecars",
 		Description: "List sidecar files whose corresponding PDF is missing.",
@@ -449,6 +476,81 @@ func (s *Server) scanBooks(_ context.Context, _ *mcp.CallToolRequest, in scanBoo
 			item.SidecarPath = &sidecarPath
 		}
 		out.Books = append(out.Books, item)
+	}
+	return nil, out, nil
+}
+
+func (s *Server) queryBooks(_ context.Context, _ *mcp.CallToolRequest, in queryBooksInput) (*mcp.CallToolResult, queryBooksOutput, error) {
+	limit := defaultScanBooksLimit
+	if in.Limit != nil {
+		limit = *in.Limit
+	}
+	if limit <= 0 {
+		return nil, queryBooksOutput{}, ErrInvalidLimit
+	}
+
+	offset := 0
+	if in.Offset != nil {
+		offset = *in.Offset
+	}
+	if offset < 0 {
+		return nil, queryBooksOutput{}, ErrInvalidOffset
+	}
+
+	directory := s.library.Root()
+	if in.Directory != nil && strings.TrimSpace(*in.Directory) != "" {
+		var err error
+		directory, err = s.resolveDirectoryPath(*in.Directory)
+		if err != nil {
+			return nil, queryBooksOutput{}, err
+		}
+	}
+
+	recursive := true
+	if in.Recursive != nil {
+		recursive = *in.Recursive
+	}
+
+	result, err := s.library.QueryBooksInDirectory(directory, recursive, shelff.BookFilter{
+		Category:   in.Category,
+		Tags:       in.Tags,
+		TagMatch:   shelff.TagMatch(in.TagMatch),
+		Status:     in.Status,
+		Collection: in.Collection,
+		Archived:   in.Archived,
+	})
+	if err != nil {
+		return nil, queryBooksOutput{}, err
+	}
+
+	total := len(result.Books)
+	start := min(offset, total)
+	end := min(start+limit, total)
+	page := result.Books[start:end]
+
+	out := queryBooksOutput{
+		Books:    make([]shelff.BookSummary, 0, len(page)),
+		Total:    total,
+		Offset:   offset,
+		Limit:    limit,
+		HasMore:  end < total,
+		Warnings: result.Warnings,
+	}
+	if out.Warnings == nil {
+		out.Warnings = []string{}
+	}
+	for _, book := range page {
+		pdfPath, err := s.relativePath(book.PDFPath)
+		if err != nil {
+			return nil, queryBooksOutput{}, err
+		}
+		sidecarPath, err := s.relativePath(book.SidecarPath)
+		if err != nil {
+			return nil, queryBooksOutput{}, err
+		}
+		book.PDFPath = pdfPath
+		book.SidecarPath = sidecarPath
+		out.Books = append(out.Books, book)
 	}
 	return nil, out, nil
 }
@@ -753,6 +855,7 @@ func toolNames() []string {
 		"move_book",
 		"rename_book",
 		"scan_books",
+		"query_books",
 		"find_orphaned_sidecars",
 		"validate_sidecar",
 		"list_directories",
