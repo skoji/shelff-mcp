@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -889,6 +890,38 @@ func TestScanBooksSupportsDirectoryFilteringAndPagination(t *testing.T) {
 	}
 	if len(out.Books) != 1 || out.Books[0].PDFPath != "nested/b.pdf" {
 		t.Fatalf("scan_books books = %#v, want nested/b.pdf only", out.Books)
+	}
+}
+
+func TestScanBooksHandlesHugeLimit(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	subDir := filepath.Join(root, "sub")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", subDir, err)
+	}
+	writeTestPDF(t, root, "a.pdf")
+	writeTestPDF(t, root, "b.pdf")
+	writeTestPDF(t, subDir, "c.pdf")
+
+	server := newTestServer(t, root)
+
+	offset := 1
+	limit := math.MaxInt
+	_, out, err := server.scanBooks(context.Background(), nil, scanBooksInput{Recursive: true, Offset: &offset, Limit: &limit})
+	if err != nil {
+		t.Fatalf("scanBooks error = %v", err)
+	}
+	paths := make([]string, 0, len(out.Books))
+	for _, book := range out.Books {
+		paths = append(paths, book.PDFPath)
+	}
+	if want := []string{"b.pdf", "sub/c.pdf"}; !slices.Equal(paths, want) {
+		t.Fatalf("pdfPaths = %v, want %v", paths, want)
+	}
+	if out.Total != 3 || out.HasMore {
+		t.Fatalf("page info = %#v, want total=3 hasMore=false", out)
 	}
 }
 
