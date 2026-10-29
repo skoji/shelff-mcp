@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -892,6 +893,38 @@ func TestScanBooksSupportsDirectoryFilteringAndPagination(t *testing.T) {
 	}
 }
 
+func TestScanBooksHandlesHugeLimit(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	subDir := filepath.Join(root, "sub")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", subDir, err)
+	}
+	writeTestPDF(t, root, "a.pdf")
+	writeTestPDF(t, root, "b.pdf")
+	writeTestPDF(t, subDir, "c.pdf")
+
+	server := newTestServer(t, root)
+
+	offset := 1
+	limit := math.MaxInt
+	_, out, err := server.scanBooks(context.Background(), nil, scanBooksInput{Recursive: true, Offset: &offset, Limit: &limit})
+	if err != nil {
+		t.Fatalf("scanBooks error = %v", err)
+	}
+	paths := make([]string, 0, len(out.Books))
+	for _, book := range out.Books {
+		paths = append(paths, book.PDFPath)
+	}
+	if want := []string{"b.pdf", "sub/c.pdf"}; !slices.Equal(paths, want) {
+		t.Fatalf("pdfPaths = %v, want %v", paths, want)
+	}
+	if out.Total != 3 || out.HasMore {
+		t.Fatalf("page info = %#v, want total=3 hasMore=false", out)
+	}
+}
+
 func TestScanBooksRejectsInvalidPagination(t *testing.T) {
 	t.Parallel()
 
@@ -1478,5 +1511,28 @@ func TestArchiveStateThroughTools(t *testing.T) {
 	decodeStructuredContent(t, tagsResult, &tagsOut)
 	if len(tagsOut.UnreadableSidecars) != 1 || tagsOut.UnreadableSidecars[0].SidecarPath != "bad.pdf.meta.json" {
 		t.Fatalf("collect_all_tags unreadableSidecars = %#v, want bad.pdf.meta.json", tagsOut.UnreadableSidecars)
+	}
+}
+
+func TestPageBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		total, offset, limit int
+		wantStart, wantEnd   int
+	}{
+		{"normal page", 10, 2, 3, 2, 5},
+		{"limit exceeds remaining", 10, 8, 5, 8, 10},
+		{"offset equals total", 3, 3, 2, 3, 3},
+		{"offset beyond total", 3, 7, 2, 3, 3},
+		{"huge limit", 3, 1, math.MaxInt, 1, 3},
+		{"empty", 0, 0, 5, 0, 0},
+	}
+	for _, tt := range tests {
+		start, end := pageBounds(tt.total, tt.offset, tt.limit)
+		if start != tt.wantStart || end != tt.wantEnd {
+			t.Errorf("%s: pageBounds(%d, %d, %d) = (%d, %d), want (%d, %d)", tt.name, tt.total, tt.offset, tt.limit, start, end, tt.wantStart, tt.wantEnd)
+		}
 	}
 }
