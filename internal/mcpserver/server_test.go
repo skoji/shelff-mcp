@@ -1513,3 +1513,26 @@ func TestArchiveStateThroughTools(t *testing.T) {
 		t.Fatalf("collect_all_tags unreadableSidecars = %#v, want bad.pdf.meta.json", tagsOut.UnreadableSidecars)
 	}
 }
+
+func TestPageBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		total, offset, limit int
+		wantStart, wantEnd   int
+	}{
+		{"normal page", 10, 2, 3, 2, 5},
+		{"limit exceeds remaining", 10, 8, 5, 8, 10},
+		{"offset equals total", 3, 3, 2, 3, 3},
+		{"offset beyond total", 3, 7, 2, 3, 3},
+		{"huge limit", 3, 1, math.MaxInt, 1, 3},
+		{"empty", 0, 0, 5, 0, 0},
+	}
+	for _, tt := range tests {
+		start, end := pageBounds(tt.total, tt.offset, tt.limit)
+		if start != tt.wantStart || end != tt.wantEnd {
+			t.Errorf("%s: pageBounds(%d, %d, %d) = (%d, %d), want (%d, %d)", tt.name, tt.total, tt.offset, tt.limit, start, end, tt.wantStart, tt.wantEnd)
+		}
+	}
+}
