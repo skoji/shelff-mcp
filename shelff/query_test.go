@@ -670,3 +670,91 @@ func TestValidateAcceptsNullDisplayCrop(t *testing.T) {
 		t.Fatalf("Validate errors = %#v, want none", errs)
 	}
 }
+
+func TestValidateAcceptsArchive(t *testing.T) {
+	t.Parallel()
+
+	for _, archive := range []string{
+		`{"isArchived": true, "changedAt": "2026-10-27T01:02:03Z"}`,
+		`{"isArchived": false, "changedAt": "2026-10-28T00:00:00Z"}`,
+	} {
+		root := t.TempDir()
+		library := openTestLibrary(t, root)
+		pdfPath := writeTestPDF(t, root, "book.pdf")
+		writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "archive": `+archive+`
+}`)
+
+		errs, err := library.Validate(pdfPath)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		if len(errs) != 0 {
+			t.Fatalf("Validate(%s) errors = %#v, want none", archive, errs)
+		}
+	}
+}
+
+func TestValidateReportsInvalidArchive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		archive string
+		needles []string
+	}{
+		{
+			name:    "missing isArchived",
+			archive: `{"changedAt": "2026-10-27T01:02:03Z"}`,
+			needles: []string{"$.archive", "isArchived"},
+		},
+		{
+			name:    "missing changedAt",
+			archive: `{"isArchived": true}`,
+			needles: []string{"$.archive", "changedAt"},
+		},
+		{
+			name:    "invalid changedAt",
+			archive: `{"isArchived": true, "changedAt": "yesterday"}`,
+			needles: []string{"$.archive.changedAt", "invalid date-time"},
+		},
+		{
+			name:    "non-boolean isArchived",
+			archive: `{"isArchived": "yes", "changedAt": "2026-10-27T01:02:03Z"}`,
+			needles: []string{"$.archive.isArchived"},
+		},
+		{
+			name:    "unknown property",
+			archive: `{"isArchived": true, "changedAt": "2026-10-27T01:02:03Z", "archivedAt": "2026-10-27T01:02:03Z"}`,
+			needles: []string{"$.archive", "archivedAt"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			library := openTestLibrary(t, root)
+			pdfPath := writeTestPDF(t, root, "book.pdf")
+			writeRawJSONFile(t, shelff.SidecarPath(pdfPath), `{
+  "schemaVersion": 1,
+  "metadata": {"dc:title": "Book"},
+  "archive": `+tt.archive+`
+}`)
+
+			errs, err := library.Validate(pdfPath)
+			if err != nil {
+				t.Fatalf("Validate returned error: %v", err)
+			}
+			joined := strings.Join(errs, "\n")
+			for _, needle := range tt.needles {
+				if !strings.Contains(joined, needle) {
+					t.Fatalf("validation errors %q do not contain %q", joined, needle)
+				}
+			}
+		})
+	}
+}
