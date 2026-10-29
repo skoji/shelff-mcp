@@ -262,7 +262,7 @@ func (s *Server) registerTools() error {
 	}, s.validateSidecar)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "library_stats",
-		Description: "Compute aggregate statistics for the library. Sidecars that cannot be parsed are reported in UnreadableSidecars and skipped.",
+		Description: "Compute aggregate statistics for the library. Sidecars that cannot be parsed are reported in unreadableSidecars and skipped.",
 	}, s.libraryStats)
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "check_library",

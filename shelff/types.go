@@ -222,18 +222,18 @@ type OrphanedSidecar struct {
 
 // LibraryStats holds aggregate statistics about a shelff library.
 type LibraryStats struct {
-	TotalPDFs        int
-	WithSidecar      int
-	WithoutSidecar   int
-	OrphanedSidecars int
-	CategoryCounts   map[string]int
-	TagCounts        map[string]int
-	StatusCounts     map[string]int
+	TotalPDFs        int            `json:"totalPDFs"`
+	WithSidecar      int            `json:"withSidecar"`
+	WithoutSidecar   int            `json:"withoutSidecar"`
+	OrphanedSidecars int            `json:"orphanedSidecars"`
+	CategoryCounts   map[string]int `json:"categoryCounts"`
+	TagCounts        map[string]int `json:"tagCounts"`
+	StatusCounts     map[string]int `json:"statusCounts"`
 	// Archived counts books whose archive.isArchived is true.
-	Archived int
+	Archived int `json:"archived"`
 	// UnreadableSidecars lists sidecars that could not be parsed. They are
 	// counted in WithSidecar but excluded from the other aggregates.
-	UnreadableSidecars []UnreadableSidecar
+	UnreadableSidecars []UnreadableSidecar `json:"unreadableSidecars"`
 }
 
 // UnreadableSidecar reports a sidecar that exists but could not be parsed.
