@@ -257,13 +257,13 @@ func TestCollectAllTagsUsesConfiguredOrderThenAlphabeticalRemainder(t *testing.T
 		t.Fatalf("WriteTagOrder returned error: %v", err)
 	}
 
-	tags, err := library.CollectAllTags()
+	result, err := library.CollectAllTags()
 	if err != nil {
 		t.Fatalf("CollectAllTags returned error: %v", err)
 	}
 	want := []string{"history", "mystery", "sci-fi"}
-	if !slices.Equal(tags, want) {
-		t.Fatalf("CollectAllTags = %#v, want %#v", tags, want)
+	if !slices.Equal(result.Tags, want) {
+		t.Fatalf("CollectAllTags = %#v, want %#v", result.Tags, want)
 	}
 }
 
