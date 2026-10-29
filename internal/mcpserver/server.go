@@ -297,7 +297,7 @@ func (s *Server) readMetadata(_ context.Context, _ *mcp.CallToolRequest, in pdfP
 	}
 	return nil, readMetadataOutput{
 		HasSidecar: hasSidecar,
-		Metadata: meta,
+		Metadata:   meta,
 	}, nil
 }
 
